@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MorvehTV Gestor</title>
+<meta name="theme-color" content="#101114">
+<meta name="robots" content="noindex">
+<link rel="icon" href="icono.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icono-192.png">
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+
+<!-- Entrar -->
+<section id="vista-entrar" class="entrar" hidden>
+  <form class="tarjeta-entrar" id="f-entrar" novalidate>
+    <div class="marca grande"><img src="icono.svg" alt=""><b>Morveh<span>TV</span></b><em>Gestor</em></div>
+    <p class="sub">Gestiona el contenido de IDrive e2: carpetas, subidas y archivos. Entra con tu cuenta de MorvehTV de administrador.</p>
+    <label>Usuario<input id="e-usuario" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+    <label>Contraseña<input id="e-clave" type="password" autocomplete="current-password"></label>
+    <button class="boton primario ancho" type="submit">Entrar</button>
+    <p class="error" id="e-error" role="alert"></p>
+  </form>
+</section>
+
+<!-- Panel -->
+<div id="vista-panel" hidden>
+  <header class="barra">
+    <div class="marca"><img src="icono.svg" alt=""><b>Morveh<span>TV</span></b><em>Gestor</em></div>
+    <span class="hueco"></span>
+    <a class="boton fino" id="ir-web" target="_blank" rel="noopener" title="Abrir la web de películas">▶ <span class="txt">Ver MorvehTV</span></a>
+    <span class="usuario" id="usuario"></span>
+    <button class="boton fino" id="salir">Salir</button>
+  </header>
+
+  <div class="cuerpo">
+    <aside class="lateral">
+      <h3>Secciones</h3>
+      <nav id="secciones"></nav>
+      <div class="uso" id="uso"></div>
+    </aside>
+
+    <main class="principal" id="principal">
+      <div class="migas" id="migas"></div>
+      <div class="herramientas">
+        <label class="boton primario"><input type="file" id="elegir" multiple hidden accept="video/*,.mkv,.avi,.ts,.srt,.vtt,.ass,image/*">⬆ Subir archivos</label>
+        <button class="boton" id="b-carpeta">📁 Nueva carpeta</button>
+        <button class="boton" id="b-serie">📺 Nueva serie</button>
+        <button class="boton icono-solo" id="b-actualizar" title="Actualizar">↻</button>
+        <span class="hueco"></span>
+        <div class="seleccion" id="seleccion" hidden>
+          <span id="sel-n"></span>
+          <button class="boton" id="sel-mover">↗ Mover</button>
+          <button class="boton peligro" id="sel-borrar">🗑 Borrar</button>
+        </div>
+      </div>
+      <div class="tabla" id="tabla"></div>
+      <div class="soltar" id="soltar"><div>⬆<br>Suelta los archivos para subirlos a<br><b id="soltar-dest"></b></div></div>
+    </main>
+  </div>
+
+  <!-- Subidas -->
+  <section class="subidas" id="subidas" hidden>
+    <header><b id="sub-titulo">Subidas</b><button class="boton icono-solo fino" id="sub-plegar" title="Plegar">▾</button></header>
+    <ul id="sub-lista"></ul>
+  </section>
+</div>
+
+<!-- Ventanas -->
+<div class="velo" id="velo" hidden><div class="ventana" id="ventana" role="dialog" aria-modal="true"></div></div>
+<div class="avisos" id="avisos"></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
