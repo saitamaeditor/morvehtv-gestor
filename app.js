@@ -12,6 +12,7 @@
   try { token = localStorage.getItem('gestor-token'); } catch {}
   let actual = ''; // carpeta abierta
   let listado = { carpetas: [], archivos: [] };
+  let secciones = []; // las carpetas principales, del último resumen
   const marcadas = new Set();
 
   // ---------- Utilidades ----------
@@ -42,10 +43,11 @@
   }
 
   // ---------- Ventanas (en vez de alert/prompt/confirm) ----------
-  function ventana(montar) {
+  function ventana(montar, { grande = false } = {}) {
     return new Promise((listo) => {
       const v = $('#ventana');
       v.innerHTML = '';
+      v.classList.toggle('grande', grande);
       $('#velo').hidden = false;
       const cerrar = (valor) => { $('#velo').hidden = true; v.innerHTML = ''; document.removeEventListener('keydown', esc); listo(valor); };
       const esc = (e) => { if (e.key === 'Escape') cerrar(null); };
@@ -111,6 +113,7 @@
   async function resumen() {
     try {
       const d = await api('/api/panel/resumen');
+      secciones = d.secciones;
       const nav = $('#secciones');
       nav.innerHTML = '';
       const raiz = el('a', actual === '' ? 'activa' : '');
@@ -313,6 +316,234 @@
     marcadas.clear(); cargar(); resumen();
   }
 
+  // ---------- Añadir título: buscarlo (por nombre o IMDb), elegir carpeta y un archivo por capítulo ----------
+  const seguro = (t) => String(t ?? '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 90);
+  const dos = (n) => String(n).padStart(2, '0');
+  const ext = (n) => (n.match(/\.(\w+)$/)?.[1] ?? 'mp4').toLowerCase();
+  // Número de capítulo que trae el nombre del archivo: «S01E02», «1x02», «E02», «Capítulo 2», «- 02 -»
+  function capituloDe(nombre) {
+    const sin = nombre.replace(/\.[^.]+$/, '');
+    const m = sin.match(/S(\d{1,2})[ ._-]?E(\d{1,3})/i) || sin.match(/(?<!\d)(\d{1,2})x(\d{2,3})(?!\d)/i);
+    if (m) return { t: Number(m[1]), e: Number(m[2]) };
+    const e = sin.match(/(?:\bE|\bEP|Episodio|Cap[ií]tulo)[ ._-]*(\d{1,3})(?!\d)/i) || sin.match(/(?:^|[ ._-])(\d{1,3})(?=[ ._-]|$)/);
+    return e ? { t: null, e: Number(e[1]) } : null;
+  }
+  function elegirArchivos(multiple) {
+    return new Promise((listo) => {
+      const i = el('input'); i.type = 'file'; i.multiple = multiple;
+      i.accept = 'video/*,.mkv,.avi,.ts,.srt,.vtt,.ass';
+      i.onchange = () => listo([...i.files]);
+      i.click();
+    });
+  }
+
+  $('#b-titulo').onclick = () => ventana(async (v, cerrar) => {
+    let ficha = null;
+    const asignados = new Map(); // 'pelicula' o 'T-E' → File
+    let seccion = actual ? `${actual.split('/')[0]}/` : (secciones[0]?.prefijo ?? '');
+
+    // --- Buscar ---
+    function pintarBusqueda(texto = '') {
+      v.innerHTML = '';
+      v.append(el('h2', null, '🎬 Añadir película o serie'), el('p', null, 'Busca por nombre o pega el enlace o el código de IMDb (tt…). Después eliges la carpeta y el archivo de cada capítulo: se suben con su nombre bien puesto.'));
+      const fila = el('div', 'buscador');
+      const q = el('input'); q.placeholder = 'Nombre, https://www.imdb.com/title/tt… o tt…'; q.value = texto;
+      const b = el('button', 'boton primario', 'Buscar');
+      fila.append(q, b);
+      const res = el('div', 'resultados');
+      v.append(fila, res);
+      const no = el('div', 'botones'); const c = el('button', 'boton', 'Cerrar'); c.onclick = () => cerrar(null); no.append(c); v.append(no);
+      const buscar = async () => {
+        if (q.value.trim().length < 2) return q.focus();
+        res.innerHTML = '<div class="cargando">Buscando…</div>';
+        try {
+          const lista = await api(`/api/panel/titulos?q=${encodeURIComponent(q.value.trim())}`);
+          res.innerHTML = '';
+          if (!lista.length) res.append(el('div', 'vacio', 'No se ha encontrado nada. Prueba con otro nombre o con el código de IMDb.'));
+          for (const r of lista) {
+            const t = el('button', 'resultado');
+            if (r.poster) { const im = el('img'); im.src = r.poster; im.alt = ''; im.loading = 'lazy'; t.append(im); } else t.append(el('div', 'sin', '🎞'));
+            const info = el('div');
+            info.append(el('span', `etiqueta ${r.tipo}`, r.tipo === 'serie' ? 'Serie' : 'Película'), el('small', null, r.anio || ''));
+            t.append(el('b', null, r.titulo), info);
+            t.onclick = () => abrirFicha(r, q.value);
+            res.append(t);
+          }
+        } catch (e) { res.innerHTML = ''; res.append(el('div', 'vacio', e.message)); }
+      };
+      b.onclick = buscar;
+      q.onkeydown = (e) => { if (e.key === 'Enter') buscar(); };
+      q.focus();
+      if (texto) buscar();
+    }
+
+    // --- Ficha, carpeta y archivos ---
+    async function abrirFicha(r, busqueda) {
+      v.innerHTML = '<div class="cargando">Cargando capítulos…</div>';
+      try { ficha = await api(`/api/panel/titulo?tipo=${r.tipo}&id=${r.tmdbId}`); } catch (e) { aviso(e.message, 'mal'); return pintarBusqueda(busqueda); }
+      asignados.clear();
+      const serie = ficha.tipo === 'serie';
+      const base = seguro(`${ficha.titulo}${ficha.anio ? ` - ${ficha.anio}` : ''}`);
+      const carpetaDe = (t) => (serie ? `${seccion}${base}/Temporada ${t}/` : seccion);
+      const nombreDe = (t, ep, file) => (serie
+        ? `${seguro(ficha.titulo)} - S${dos(t)}E${dos(ep.numero)}${ep.titulo ? ` - ${seguro(ep.titulo)}` : ''}.${ext(file.name)}`
+        : `${base}.${ext(file.name)}`);
+
+      v.innerHTML = '';
+      // Cabecera con el cartel
+      const cab = el('div', 'ficha');
+      if (ficha.poster) { const im = el('img'); im.src = ficha.poster; im.alt = ''; cab.append(im); }
+      const txt = el('div');
+      txt.append(el('h2', null, `${ficha.titulo}${ficha.anio ? ` (${ficha.anio})` : ''}`));
+      const meta = el('div');
+      meta.append(el('span', `etiqueta ${ficha.tipo}`, serie ? `Serie · ${ficha.temporadas.filter((t) => t.numero > 0).length} temporadas` : 'Película'));
+      if (ficha.generos?.length) meta.append(el('small', null, ficha.generos.slice(0, 3).join(' · ')));
+      txt.append(meta);
+      if (ficha.sinopsis) txt.append(el('p', 'sinopsis', ficha.sinopsis));
+      if (ficha.imdb) { const a = el('a', null, `IMDb ${ficha.imdb} ↗`); a.href = `https://www.imdb.com/title/${ficha.imdb}/`; a.target = '_blank'; a.rel = 'noopener'; txt.append(a); }
+      cab.append(txt);
+      v.append(cab);
+
+      // Carpeta de destino
+      const dest = el('div', 'destino');
+      const lsel = el('label', null, 'Carpeta donde se sube');
+      const sel = el('select');
+      for (const s of secciones) sel.append(new Option(s.nombre, s.prefijo));
+      // Si no se estaba dentro de una sección, la que cuadre con el tipo («SERIES» o «PELICULAS»)
+      if (!actual || !secciones.some((s) => s.prefijo === seccion)) {
+        const tipoRe = serie ? /^series?\/$/i : /^pel[ií]culas?\/$/i;
+        const parecida = serie ? /serie/i : /pel[ií]cula|estreno|cine/i;
+        seccion = (secciones.find((s) => tipoRe.test(s.prefijo)) ?? secciones.find((s) => parecida.test(s.prefijo)) ?? secciones[0])?.prefijo ?? '';
+      }
+      sel.value = seccion;
+      lsel.append(sel);
+      const ruta = el('div');
+      dest.append(lsel, ruta);
+      v.append(dest);
+      const pintarRuta = () => { ruta.innerHTML = ''; ruta.append(el('span', null, 'Quedará en: '), el('code', null, serie ? `${seccion}${base}/Temporada N/` : `${seccion}${base}.mp4`)); };
+      sel.onchange = () => { seccion = sel.value; pintarRuta(); };
+      pintarRuta();
+
+      const pie = el('div', 'pie-titulo');
+      const resumenTxt = el('span', 'resumen');
+      const volver = el('button', 'boton', '← Buscar otro'); volver.onclick = () => pintarBusqueda(busqueda);
+      const subir = el('button', 'boton primario', 'Subir');
+      pie.append(resumenTxt, volver, subir);
+      const actualizarPie = () => {
+        const n = asignados.size;
+        resumenTxt.textContent = n ? `${n} archivo${n === 1 ? '' : 's'} elegido${n === 1 ? '' : 's'}` : (serie ? 'Elige el archivo de cada capítulo' : 'Elige el archivo de la película');
+        subir.disabled = !n || !seccion;
+        subir.textContent = n > 1 ? `Subir ${n} archivos` : 'Subir';
+      };
+
+      // Una fila por archivo a elegir
+      function filaArchivo(clave, numero, titulo) {
+        const f = el('div', 'episodio');
+        const nombreF = el('span', 'f');
+        const b = el('button', 'boton');
+        const pintar = () => {
+          const file = asignados.get(clave);
+          f.classList.toggle('con', !!file);
+          nombreF.textContent = file ? `✓ ${file.name} · ${tam(file.size)}` : 'Sin archivo';
+          nombreF.title = file ? file.name : '';
+          b.textContent = file ? '✕' : 'Elegir';
+          b.title = file ? 'Quitar' : 'Elegir el archivo';
+          actualizarPie();
+        };
+        b.onclick = async () => {
+          if (asignados.has(clave)) asignados.delete(clave);
+          else { const [file] = await elegirArchivos(false); if (file) asignados.set(clave, file); }
+          pintar();
+        };
+        const t = el('span', 't', titulo); t.title = titulo;
+        f.append(el('span', 'n', numero), t, nombreF, b);
+        f.pintar = pintar;
+        pintar();
+        return f;
+      }
+
+      const filas = new Map();
+      if (!serie) {
+        const caja = el('div', 'temporada');
+        const f = filaArchivo('pelicula', '🎬', `${ficha.titulo}${ficha.anio ? ` (${ficha.anio})` : ''}`);
+        caja.append(f);
+        v.append(caja);
+      } else {
+        // Varios archivos a la vez: cada uno a su capítulo por el número del nombre
+        const repartir = (files, temporada) => {
+          const sinNumero = [];
+          let colocados = 0;
+          for (const file of files) {
+            const c = capituloDe(file.name);
+            const t = c?.t ?? temporada;
+            const ep = t != null && c ? ficha.temporadas.find((x) => x.numero === t)?.episodios.find((x) => x.numero === c.e) : null;
+            if (ep) { asignados.set(`${t}-${ep.numero}`, file); colocados++; } else sinNumero.push(file);
+          }
+          // Los que no dicen su número, en orden, en los capítulos libres de esa temporada
+          if (temporada != null && sinNumero.length) {
+            const libres = ficha.temporadas.find((x) => x.numero === temporada).episodios.filter((e) => !asignados.has(`${temporada}-${e.numero}`));
+            sinNumero.sort((a, b) => a.name.localeCompare(b.name, 'es', { numeric: true }))
+              .forEach((file, i) => { if (libres[i]) { asignados.set(`${temporada}-${libres[i].numero}`, file); colocados++; } });
+          }
+          filas.forEach((f) => f.pintar());
+          aviso(`${colocados} de ${files.length} archivo${files.length === 1 ? '' : 's'} colocado${files.length === 1 ? '' : 's'}${colocados < files.length ? ': elige a mano los demás' : ''}`, colocados ? 'bien' : 'mal');
+        };
+        const todos = el('div', 'buscador');
+        const bt = el('button', 'boton', '📂 Elegir archivos de varios capítulos…');
+        bt.title = 'Se colocan solos si el nombre lleva S01E02, 1x02…';
+        bt.onclick = async () => { const files = await elegirArchivos(true); if (files.length) repartir(files, null); };
+        todos.append(bt, el('span', 'resumen', 'Se colocan solos si el nombre trae «S01E02» o «1x02».'));
+        v.append(todos);
+        ficha.temporadas.forEach((t, i) => {
+          const d = el('details', 'temporada');
+          d.open = i === 0;
+          const s = el('summary');
+          const bt2 = el('button', 'boton', 'Elegir archivos de esta temporada');
+          bt2.onclick = async (e) => { e.preventDefault(); const files = await elegirArchivos(true); if (files.length) { d.open = true; repartir(files, t.numero); } };
+          s.append(el('span', null, `${t.nombre} · ${t.episodios.length} capítulos`), el('span', 'hueco'), bt2);
+          d.append(s);
+          for (const ep of t.episodios) {
+            const f = filaArchivo(`${t.numero}-${ep.numero}`, `E${dos(ep.numero)}`, ep.titulo || `Capítulo ${ep.numero}`);
+            filas.set(`${t.numero}-${ep.numero}`, f);
+            d.append(f);
+          }
+          v.append(d);
+        });
+      }
+      v.append(pie);
+      actualizarPie();
+
+      // Subir: carpetas, vínculo con TMDB y todo a la cola
+      subir.onclick = async () => {
+        subir.disabled = true;
+        try {
+          const trabajos = [];
+          if (!serie) {
+            const file = asignados.get('pelicula');
+            trabajos.push({ file, carpeta: carpetaDe(), nombre: nombreDe(null, null, file) });
+            await api('/api/panel/vincular', { clave: `${seccion}${nombreDe(null, null, file)}`, tmdbId: ficha.tmdbId, tipo: 'pelicula' }).catch(() => {});
+          } else {
+            for (const [clave, file] of asignados) {
+              const [t, n] = clave.split('-').map(Number);
+              const ep = ficha.temporadas.find((x) => x.numero === t).episodios.find((x) => x.numero === n);
+              trabajos.push({ file, carpeta: carpetaDe(t), nombre: nombreDe(t, ep, file) });
+            }
+            const carpetas = [`${seccion}${base}/`, ...new Set(trabajos.map((x) => x.carpeta))];
+            await api('/api/panel/carpeta', { carpetas });
+            await api('/api/panel/vincular', { clave: `${seccion}${base}/`, tmdbId: ficha.tmdbId, tipo: 'serie' }).catch(() => {});
+            trabajos.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { numeric: true }));
+          }
+          cerrar(true);
+          irA(serie ? `${seccion}${base}/` : seccion);
+          for (const x of trabajos) encolar(x.file, x.carpeta, x.nombre);
+          aviso(`${trabajos.length} archivo${trabajos.length === 1 ? '' : 's'} a la cola de subida`, 'bien');
+        } catch (e) { aviso(e.message, 'mal'); subir.disabled = false; }
+      };
+    }
+
+    pintarBusqueda();
+  }, { grande: true });
+
   // ---------- Subidas: directas a e2 por trozos firmados ----------
   const cola = [];
   let subiendo = false;
@@ -331,12 +562,19 @@
     if (!actual) return aviso('Entra primero en la carpeta donde quieres subir', 'mal');
     for (const file of lista) {
       if (!SUBIBLE.test(file.name)) { aviso(`«${file.name}»: solo vídeos, subtítulos o imágenes`, 'mal'); continue; }
-      const x = { file, nombre: file.name, carpeta: actual, estado: 'espera', subido: 0, xhrs: new Set() };
+      encolar(file, actual, file.name);
+    }
+  }
+  // Un archivo a la cola de subidas, con su carpeta y su nombre en e2
+  function encolar(file, carpeta, nombre) {
+    {
+      const x = { file, nombre, carpeta, estado: 'espera', subido: 0, xhrs: new Set() };
       x.li = el('li', 'sub');
       const linea = el('div', 'linea');
       x.quitar = el('button', null, '✕'); x.quitar.title = 'Cancelar';
       x.quitar.onclick = () => cancelar(x);
-      linea.append(el('b', null, file.name), x.quitar);
+      const b = el('b', null, nombre); b.title = `${carpeta}${nombre}`;
+      linea.append(b, x.quitar);
       x.dato = el('div', 'dato');
       x.barra = el('div', 'progreso'); x.barra.append(el('i'));
       x.li.append(linea, x.dato, x.barra);
