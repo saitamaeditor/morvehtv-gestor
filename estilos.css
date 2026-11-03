@@ -124,6 +124,8 @@ label { display: flex; flex-direction: column; gap: 6px; color: var(--suave); fo
 .velo { position: fixed; inset: 0; z-index: 40; background: rgba(5,6,8,.7); display: flex; align-items: center; justify-content: center; padding: 16px; }
 .ventana { width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--borde); border-radius: 14px;
   padding: 22px; box-shadow: 0 24px 60px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 14px; }
+/* Lo de dentro no se encoge: si no cabe, la ventana se desplaza (si no, las temporadas salían cortadas) */
+.ventana > * { flex-shrink: 0; }
 .ventana h2 { margin: 0; font-size: 18px; }
 .ventana p { margin: 0; color: var(--suave); }
 .ventana .botones { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 4px; }

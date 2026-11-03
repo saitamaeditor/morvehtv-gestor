@@ -494,9 +494,9 @@
         bt.onclick = async () => { const files = await elegirArchivos(true); if (files.length) repartir(files, null); };
         todos.append(bt, el('span', 'resumen', 'Se colocan solos si el nombre trae «S01E02» o «1x02».'));
         v.append(todos);
-        ficha.temporadas.forEach((t, i) => {
+        ficha.temporadas.forEach((t) => {
           const d = el('details', 'temporada');
-          d.open = i === 0;
+          d.open = true; // todas abiertas, con todos sus capítulos (se pueden plegar)
           const s = el('summary');
           const bt2 = el('button', 'boton', 'Elegir archivos de esta temporada');
           bt2.onclick = async (e) => { e.preventDefault(); const files = await elegirArchivos(true); if (files.length) { d.open = true; repartir(files, t.numero); } };
