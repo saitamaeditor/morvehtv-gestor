@@ -704,6 +704,17 @@
   }
   window.addEventListener('beforeunload', (e) => { if (subiendo) { e.preventDefault(); e.returnValue = ''; } });
 
+  // ---------- Al día ----------
+  // GitHub Pages deja guardar los archivos 10 minutos: si hay una versión publicada más nueva que
+  // la de esta página, se recarga con ella (la dirección con ?v=… obliga a pedirlo todo de nuevo)
+  fetch(`version.txt?t=${Date.now()}`, { cache: 'no-store' }).then((r) => (r.ok ? r.text() : '')).then((t) => {
+    const nueva = t.trim();
+    const mia = document.documentElement.dataset.version;
+    if (nueva && nueva !== mia && new URLSearchParams(location.search).get('v') !== nueva && !subiendo) {
+      location.replace(`${location.pathname}?v=${encodeURIComponent(nueva)}${location.hash}`);
+    }
+  }).catch(() => {});
+
   // ---------- Arranque ----------
   if (!token) return salir();
   api('/api/panel/yo').then(arrancar).catch((e) => { if (token) { $('#vista-entrar').hidden = false; $('#e-error').textContent = e.message; } });
