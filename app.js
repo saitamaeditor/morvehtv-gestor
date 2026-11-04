@@ -6,7 +6,8 @@
   const el = (tag, clase, texto) => { const e = document.createElement(tag); if (clase) e.className = clase; if (texto != null) e.textContent = texto; return e; };
   const VIDEO = /\.(mp4|m4v|mkv|webm|mov|avi|ts|wmv|flv)$/i;
   const SUBIBLE = /\.(mp4|m4v|mkv|webm|mov|avi|ts|wmv|flv|srt|vtt|ass|jpe?g|png|webp)$/i;
-  const CONCURRENCIA = 4;
+  // Trozos que se envían a la vez (los navegadores abren hasta 6 conexiones por servidor)
+  const CONCURRENCIA = 6;
 
   let token = null;
   try { token = localStorage.getItem('gestor-token'); } catch {}
@@ -903,7 +904,14 @@
     if (!subiendo) procesar();
     return x;
   }
+  // Repintar la lista cuesta: mientras se sube, como mucho 4 veces por segundo por archivo (los
+  // cambios de estado —empieza, termina, falla— se pintan al momento)
+  function pintarSubLuego(x) {
+    if (x.pintando) return;
+    x.pintando = setTimeout(() => { x.pintando = null; pintarSub(x); }, 250);
+  }
   function pintarSub(x) {
+    if (x.pintando) { clearTimeout(x.pintando); x.pintando = null; }
     x.li.className = `sub ${x.estado}`;
     const pct = x.file.size ? (100 * x.subido / x.file.size) : 0;
     x.barra.firstChild.style.width = `${pct.toFixed(1)}%`;
@@ -955,27 +963,33 @@
     const urls = {}; const pedidas = new Map();
     async function url(n) {
       if (urls[n]) return urls[n];
-      const tanda = Math.floor((n - 1) / 50);
+      // Las direcciones firmadas se piden de 200 en 200 (menos idas y vueltas al servidor)
+      const tanda = Math.floor((n - 1) / 200);
       if (!pedidas.has(tanda)) {
         const numeros = [];
-        for (let i = tanda * 50 + 1; i <= Math.min(partes, tanda * 50 + 50); i++) numeros.push(i);
+        for (let i = tanda * 200 + 1; i <= Math.min(partes, tanda * 200 + 200); i++) numeros.push(i);
         pedidas.set(tanda, api('/api/panel/subir/partes', { key, uploadId, numeros }).then((r) => Object.assign(urls, r.urls)).finally(() => pedidas.delete(tanda)));
       }
       await pedidas.get(tanda);
       return urls[n];
     }
-    const etags = {}; const porParte = {};
+    const etags = {};
+    // Lo subido = trozos terminados (un total que solo suma) + lo que llevan los que están en
+    // marcha (como mucho 6): no se recorre la lista entera de trozos en cada avance
+    let terminado = 0; const enMarcha = new Map();
     const pendientes = Array.from({ length: partes }, (_, i) => i + 1);
     let muestra = { t: performance.now(), b: 0 };
     const avanzar = () => {
-      x.subido = Object.values(porParte).reduce((a, b) => a + b, 0);
+      let s = terminado;
+      for (const b of enMarcha.values()) s += b;
+      x.subido = s;
       const ahora = performance.now();
       if (ahora - muestra.t > 1500) {
         const v = (x.subido - muestra.b) / ((ahora - muestra.t) / 1000);
         x.velocidad = x.velocidad ? x.velocidad * 0.6 + v * 0.4 : v;
         muestra = { t: ahora, b: x.subido };
       }
-      pintarSub(x);
+      pintarSubLuego(x);
     };
     async function trabajador() {
       while (pendientes.length) {
@@ -984,12 +998,12 @@
         const blob = x.file.slice((n - 1) * tamParte, Math.min(n * tamParte, x.file.size));
         for (let intento = 1; ; intento++) {
           try {
-            etags[n] = await put(await url(n), blob, x, (b) => { porParte[n] = b; avanzar(); });
-            porParte[n] = blob.size; avanzar();
+            etags[n] = await put(await url(n), blob, x, (b) => { enMarcha.set(n, b); avanzar(); });
+            enMarcha.delete(n); terminado += blob.size; avanzar();
             break;
           } catch (e) {
             if (x.cancelado) throw new Error('Cancelado');
-            porParte[n] = 0;
+            enMarcha.delete(n);
             if (e.status === 403) delete urls[n];
             if (intento >= 5) throw e;
             await espera(1000 * 2 ** intento);
