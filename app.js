@@ -313,16 +313,115 @@
   });
   async function borrar(claves) {
     const carpetas = claves.filter((k) => k.endsWith('/')).length;
-    const ok = await confirmar('Borrar definitivamente',
-      `${carpetas ? 'Las carpetas se borran con todo lo que tienen dentro. ' : ''}No se puede deshacer: IDrive e2 no guarda copias.`,
+    const ok = await confirmar('Mandar a la papelera',
+      `${carpetas ? 'Las carpetas van con todo lo que tienen dentro. ' : ''}Desaparece de MorvehTV, pero se puede recuperar desde 🗑 Papelera durante 30 días.`,
       claves.map((k) => `${k.endsWith('/') ? '📁' : icono(k)} ${k}`), `Borrar ${claves.length === 1 ? '' : claves.length}`.trim(), true);
     if (!ok) return;
     try {
-      const r = await api('/api/panel/borrar', { claves });
-      aviso(`Borrado (${r.borrados} objeto${r.borrados === 1 ? '' : 's'})`, 'bien');
+      let r;
+      try { r = await api('/api/panel/borrar', { claves }); } catch (e) {
+        if (!e.datos?.confirmar) throw e;
+        // Mucho de golpe: hay que escribir BORRAR
+        const d = e.datos;
+        const escrito = await pedirTexto('⚠ Borrado grande',
+          `${d.seccion ? 'Vas a borrar una sección entera. ' : ''}Son ${d.archivos} archivos (${tam(d.tamano)}). Para confirmarlo, escribe BORRAR en mayúsculas.`, '', 'Borrar');
+        if (escrito !== 'BORRAR') { if (escrito != null) aviso('No se ha borrado nada: había que escribir BORRAR', 'mal'); return; }
+        r = await api('/api/panel/borrar', { claves, confirmacion: 'BORRAR' });
+      }
+      await seguirTrabajo(r.trabajo, `Moviendo ${r.borrados} archivo${r.borrados === 1 ? '' : 's'} a la papelera`);
+      aviso(`${r.borrados} archivo${r.borrados === 1 ? '' : 's'} en la papelera`, 'bien');
     } catch (e) { aviso(e.message, 'mal'); }
     marcadas.clear(); cargar(); resumen();
   }
+
+  // Borrar y recuperar van en segundo plano en el servidor: aquí se espera enseñando cómo va
+  async function seguirTrabajo(id, texto) {
+    if (!id) return;
+    const a = el('div', 'aviso fijo', `${texto}…`);
+    $('#avisos').append(a);
+    try {
+      for (;;) {
+        const t = await api(`/api/panel/trabajo?id=${encodeURIComponent(id)}`);
+        a.textContent = `${texto}… ${t.hechos} de ${t.total}`;
+        if (t.estado === 'error') throw new Error(t.error);
+        if (t.estado === 'hecho') return t;
+        await new Promise((ok) => setTimeout(ok, 1200));
+      }
+    } finally { a.remove(); }
+  }
+
+  // ---------- Papelera ----------
+  $('#b-papelera').onclick = () => ventana(async (v, cerrar) => {
+    async function pintar() {
+      v.innerHTML = '<div class="cargando">Cargando la papelera…</div>';
+      let d;
+      try { d = await api('/api/panel/papelera'); } catch (e) { v.innerHTML = ''; v.append(el('div', 'vacio', e.message)); return; }
+      v.innerHTML = '';
+      v.append(el('h2', null, '🗑 Papelera'),
+        el('p', null, `Lo borrado se queda aquí ${d.dias} días y luego se elimina solo. Para eliminarlo antes hace falta tu contraseña, y solo pasadas ${d.horasAntesDeVaciar} horas (así, si alguien entrara con una cuenta robada, no podría destruir nada al momento).`));
+      const lista = el('div', 'papelera');
+      if (!d.lotes.length) lista.append(el('div', 'vacio', 'La papelera está vacía'));
+      for (const l of d.lotes) {
+        const f = el('div', 'lote');
+        const info = el('div', 'info');
+        const nombres = l.claves.length ? l.claves.map(nombreDe).slice(0, 3).join(', ') + (l.claves.length > 3 ? ` y ${l.claves.length - 3} más` : '') : l.lote;
+        const t = el('b', null, nombres); t.title = l.claves.join('\n');
+        info.append(t, el('small', null, `${l.motivo} por ${l.usuario} · ${fecha(l.fecha)} · ${l.objetos} archivo${l.objetos === 1 ? '' : 's'} · ${tam(l.tamano)} · se elimina sola el ${fecha(l.seVaciaSola)}`));
+        const rec = el('button', 'boton primario', '↩ Recuperar');
+        rec.onclick = async () => {
+          rec.disabled = true;
+          try {
+            const r = await api('/api/panel/papelera/recuperar', { lote: l.lote });
+            const t2 = await seguirTrabajo(r.trabajo, 'Recuperando');
+            aviso(t2?.saltados ? `Recuperado; ${t2.saltados} no se ha puesto porque ya hay otro archivo con ese nombre` : 'Recuperado en su sitio', t2?.saltados ? 'mal' : 'bien');
+            cargar(); resumen();
+          } catch (e) { aviso(e.message, 'mal'); }
+          pintar();
+        };
+        const del = el('button', 'boton peligro', 'Eliminar para siempre');
+        del.onclick = async () => {
+          const clave = await pedirClave(nombres);
+          if (!clave) return;
+          try { await api('/api/panel/papelera/vaciar', { lote: l.lote, clave }); aviso('Eliminado para siempre', 'bien'); } catch (e) { aviso(e.message, 'mal'); }
+          pintar();
+        };
+        const bs = el('div', 'acciones'); bs.append(rec, del);
+        f.append(info, bs);
+        lista.append(f);
+      }
+      v.append(lista);
+      const pie = el('div', 'botones'); const c = el('button', 'boton', 'Cerrar'); c.onclick = () => cerrar(null); pie.append(c); v.append(pie);
+    }
+    pintar();
+  }, { grande: true });
+
+  const pedirClave = (que) => ventana((v, cerrar) => {
+    v.append(el('h2', null, 'Eliminar para siempre'), el('p', null, `«${que}» se borrará de IDrive e2 sin vuelta atrás. Escribe tu contraseña para confirmarlo.`));
+    const i = el('input'); i.type = 'password'; i.autocomplete = 'current-password'; v.append(i);
+    const si = botones(v, cerrar, 'Eliminar', 'peligro lleno', () => { if (i.value) cerrar(i.value); });
+    i.onkeydown = (e) => { if (e.key === 'Enter') si.click(); };
+    i.focus();
+  });
+
+  // ---------- Registro: quién hizo qué ----------
+  $('#b-registro').onclick = () => ventana(async (v, cerrar) => {
+    v.append(el('h2', null, '📜 Registro'), el('p', null, 'Las últimas acciones hechas desde el gestor: quién, cuándo y desde qué conexión.'));
+    const caja = el('div', 'registro'); caja.innerHTML = '<div class="cargando">Cargando…</div>';
+    v.append(caja);
+    const pie = el('div', 'botones'); const c = el('button', 'boton', 'Cerrar'); c.onclick = () => cerrar(null); pie.append(c); v.append(pie);
+    try {
+      const lista = await api('/api/panel/registro');
+      caja.innerHTML = '';
+      if (!lista.length) caja.append(el('div', 'vacio', 'Aún no hay nada apuntado'));
+      for (const x of lista) {
+        const f = el('div', `fila-registro${/borra|elimina/.test(x.accion) ? ' peligro' : ''}`);
+        const que = x.claves?.length ? `${x.claves.map(nombreDe).slice(0, 2).join(', ')}${x.total > 2 ? ` y ${x.total - 2} más` : ''}` : '';
+        f.append(el('small', null, fecha(x.fecha)), el('b', null, x.usuario), el('span', null, `${x.accion}${que ? `: ${que}` : ''}${x.objetos != null ? ` (${x.objetos})` : ''}`), el('small', 'ip', x.ip || ''));
+        f.title = (x.claves ?? []).join('\n');
+        caja.append(f);
+      }
+    } catch (e) { caja.innerHTML = ''; caja.append(el('div', 'vacio', e.message)); }
+  }, { grande: true });
 
   // ---------- Añadir título: buscarlo (por nombre o IMDb), elegir carpeta y un archivo por capítulo ----------
   const seguro = (t) => String(t ?? '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 90);
