@@ -412,7 +412,7 @@
     let d;
     try { d = await api('/api/panel/anuncios'); } catch (e) { v.innerHTML = ''; v.append(el('div', 'vacio', e.message)); return; }
     v.innerHTML = '';
-    const pagosTexto = /^ok/.test(d.pagos) ? `Pagos con Patreon activados ${d.pagos.replace(/^ok\s*/, '')}` : `Pagos con Patreon sin activar (${d.pagos}): nadie puede hacerse Premium todavía`;
+    const pagosTexto = /^ok/.test(d.pagos) ? `Pagos con USDC activados ${d.pagos.replace(/^ok\s*/, '')}` : `Pagos con USDC sin activar (${d.pagos}): nadie puede hacerse Premium todavía`;
     v.append(el('h2', null, '📣 Anuncios y planes'),
       el('p', null, `${d.planes.cuentas} cuentas: ${d.planes.premium} Premium de pago, ${d.planes.basico} Básico (con anuncios) y ${d.planes.admins ?? 0} administradores (Premium de por vida). ${pagosTexto}. ${d.adsense ? 'Google AdSense activado en la web.' : 'Sin Google AdSense: se usan estos anuncios propios.'}`));
     const lista = el('div', 'lista-anuncios');
@@ -457,6 +457,55 @@
       try { const r = await api('/api/panel/anuncios', { anuncios }); aviso(`Guardados ${r.anuncios.length} anuncios`, 'bien'); cerrar(true); } catch (e) { aviso(e.message, 'mal'); si.disabled = false; }
     };
     fila.append(no, si); v.append(fila);
+  }, { grande: true });
+
+  // ---------- Pagos en USDC ----------
+  // Lo que se ha pagado (cada pago enlaza a basescan.org, el explorador público de Base) y los
+  // pagos que llegaron con un importe que no era de ningún pedido, para dárselos a quien sea
+  $('#b-usdc').onclick = () => ventana(async (v, cerrar) => {
+    async function pintar() {
+      v.innerHTML = '<div class="cargando">Cargando…</div>';
+      let d;
+      try { d = await api('/api/panel/cripto'); } catch (e) { v.innerHTML = ''; v.append(el('div', 'vacio', e.message)); return; }
+      v.innerHTML = '';
+      v.append(el('h2', null, '💰 Pagos USDC (red Base)'),
+        el('p', null, d.direccion ? `Se reciben en ${d.direccion}. Opciones: ${d.opciones.map((o) => `${o.usdc} USDC = ${o.meses} ${o.meses === 1 ? 'mes' : 'meses'}`).join(' · ')}.` : `Sin activar: ${d.estado}`));
+      const enlaceTx = (tx) => { const a = el('a', null, `${tx.slice(0, 10)}… ↗`); a.href = `https://basescan.org/tx/${tx}`; a.target = '_blank'; a.rel = 'noopener'; return a; };
+      v.append(el('h3', null, 'Pagos sin identificar'));
+      const s = el('div', 'registro');
+      if (!d.sueltos.length) s.append(el('div', 'vacio', 'Ninguno: todos los pagos han llegado con su importe exacto'));
+      for (const x of d.sueltos) {
+        const f = el('div', 'fila-registro');
+        const info = el('span', null, `${x.importe} USDC de ${x.de.slice(0, 8)}…${x.asignado ? ` · asignado (${x.asignado.meses} meses)` : ''}`);
+        const tx = el('small'); tx.append(enlaceTx(x.tx));
+        f.append(el('small', null, fecha(x.fecha)), tx, info);
+        if (!x.asignado) {
+          const b = el('button', 'boton fino', 'Asignar');
+          b.onclick = async () => {
+            const usuario = await pedirTexto('Asignar pago', `¿A qué usuario de MorvehTV le das estos ${x.importe} USDC?`, '', 'Siguiente');
+            if (!usuario) return;
+            const meses = await pedirTexto('Meses de Premium', `¿Cuántos meses le das a ${usuario}?`, '1', 'Asignar');
+            if (!meses) return;
+            try { await api('/api/panel/cripto/asignar', { tx: x.tx, usuario, meses: Number(meses) }); aviso('Asignado', 'bien'); } catch (e) { aviso(e.message, 'mal'); }
+            pintar();
+          };
+          f.append(b);
+        }
+        s.append(f);
+      }
+      v.append(s, el('h3', null, 'Pedidos recientes'));
+      const l = el('div', 'registro');
+      if (!d.pedidos.length) l.append(el('div', 'vacio', 'Todavía no hay pedidos'));
+      for (const x of d.pedidos) {
+        const f = el('div', 'fila-registro');
+        const est = el('small'); if (x.tx) est.append(enlaceTx(x.tx)); else est.textContent = Date.now() - x.creado > 3600000 ? 'sin pagar' : 'esperando';
+        f.append(el('small', null, fecha(x.creado)), el('b', null, x.usuario), el('span', null, `${x.importe} USDC · ${x.meses} ${x.meses === 1 ? 'mes' : 'meses'}${x.tx ? ' · pagado ✓' : ''}`), est);
+        l.append(f);
+      }
+      v.append(l);
+      const pie = el('div', 'botones'); const c = el('button', 'boton', 'Cerrar'); c.onclick = () => cerrar(null); pie.append(c); v.append(pie);
+    }
+    pintar();
   }, { grande: true });
 
   // ---------- Registro: quién hizo qué ----------
