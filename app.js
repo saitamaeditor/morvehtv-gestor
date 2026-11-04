@@ -412,7 +412,7 @@
     let d;
     try { d = await api('/api/panel/anuncios'); } catch (e) { v.innerHTML = ''; v.append(el('div', 'vacio', e.message)); return; }
     v.innerHTML = '';
-    const pagosTexto = d.pagos === 'ok' ? 'Pagos con Stripe activados' : `Pagos sin activar (${d.pagos}): nadie puede hacerse Premium todavía`;
+    const pagosTexto = /^ok/.test(d.pagos) ? `Pagos con PayPal activados ${d.pagos.replace(/^ok\s*/, '')}` : `Pagos con PayPal sin activar (${d.pagos}): nadie puede hacerse Premium todavía`;
     v.append(el('h2', null, '📣 Anuncios y planes'),
       el('p', null, `${d.planes.cuentas} cuentas: ${d.planes.premium} Premium (sin anuncios) y ${d.planes.basico} Básico (con anuncios). ${pagosTexto}. ${d.adsense ? 'Google AdSense activado en la web.' : 'Sin Google AdSense: se usan estos anuncios propios.'}`));
     const lista = el('div', 'lista-anuncios');
@@ -426,13 +426,28 @@
         const activo = el('label', 'check'); const c = el('input'); c.type = 'checkbox'; c.checked = a.activo !== false; c.onchange = () => { a.activo = c.checked; }; activo.append(c, document.createTextNode(' Activo'));
         const quitar = el('button', 'boton peligro', 'Quitar'); quitar.onclick = () => { anuncios.splice(n, 1); pintar(); };
         const pie = el('div', 'pie-anuncio'); pie.append(activo, quitar);
+        // Vídeo para antes de reproducir: se sube aquí mismo (o una dirección https)
+        const vid = el('div', 'video-anuncio');
+        const estadoVid = el('span', null, a.video ? (a.video.startsWith('_morvehtv/') ? '🎬 Vídeo subido' : `🎬 ${a.video}`) : 'Sin vídeo (antes de reproducir saldrá la imagen 5 s)');
+        const subirVid = el('button', 'boton', '⬆ Subir vídeo');
+        subirVid.onclick = () => {
+          const i = el('input'); i.type = 'file'; i.accept = 'video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v';
+          i.onchange = () => {
+            const file = i.files[0]; if (!file) return;
+            estadoVid.textContent = `⏳ Subiendo ${file.name}…`;
+            encolar(file, '', file.name, { anuncio: true, alTerminar: (key) => { a.video = key; estadoVid.textContent = '✓ Vídeo subido: pulsa Guardar'; } });
+          };
+          i.click();
+        };
+        const quitarVid = el('button', 'boton', 'Quitar vídeo'); quitarVid.onclick = () => { a.video = null; pintar(); };
+        vid.append(el('b', null, 'Vídeo antes de reproducir'), estadoVid, subirVid, ...(a.video ? [quitarVid] : []));
         f.append(campo('Título', 'titulo', 'Ej.: Tu tienda'), campo('Texto', 'texto', 'Una frase corta'),
-          campo('Imagen (https://…)', 'imagen', 'https://…/banner.jpg'), campo('Enlace al pulsar (https://…)', 'enlace', 'https://…'), pie);
+          campo('Imagen (https://…)', 'imagen', 'https://…/banner.jpg'), campo('Enlace al pulsar (https://…)', 'enlace', 'https://…'), vid, pie);
         lista.append(f);
       });
     }
     pintar();
-    const mas = el('button', 'boton', '+ Añadir anuncio'); mas.onclick = () => { anuncios.push({ titulo: '', texto: '', imagen: '', enlace: '', activo: true }); pintar(); };
+    const mas = el('button', 'boton', '+ Añadir anuncio'); mas.onclick = () => { anuncios.push({ titulo: '', texto: '', imagen: '', enlace: '', video: null, activo: true }); pintar(); };
     v.append(lista, mas);
     const fila = el('div', 'botones');
     const no = el('button', 'boton', 'Cerrar'); no.onclick = () => cerrar(null);
@@ -760,8 +775,8 @@
     }
   }
   // Un archivo a la cola de subidas, con su carpeta y su nombre en e2
-  function encolar(file, carpeta, nombre) {
-    const x = { file, nombre, carpeta, estado: 'espera', subido: 0, xhrs: new Set() };
+  function encolar(file, carpeta, nombre, extra = {}) {
+    const x = { file, nombre, carpeta, estado: 'espera', subido: 0, xhrs: new Set(), ...extra };
     {
       x.li = el('li', 'sub');
       const linea = el('div', 'linea');
@@ -823,7 +838,7 @@
     x.estado = 'subiendo'; x.subido = 0; x.velocidad = 0; pintarSub(x);
     let ini;
     try {
-      ini = await api('/api/panel/subir/iniciar', { carpeta: x.carpeta, nombre: x.nombre, tamano: x.file.size, reemplazar: x.reemplazar });
+      ini = await api('/api/panel/subir/iniciar', { carpeta: x.carpeta, nombre: x.nombre, tamano: x.file.size, reemplazar: x.reemplazar, anuncio: x.anuncio });
     } catch (e) {
       if (e.datos?.existe && await confirmar('Ya existe', `«${x.nombre}» ya está en ${x.carpeta}. ¿Reemplazarlo?`, null, 'Reemplazar', true)) { x.reemplazar = true; return subirUno(x); }
       throw e;
@@ -878,6 +893,7 @@
       await Promise.all(Array.from({ length: Math.min(CONCURRENCIA, partes) }, trabajador));
       await api('/api/panel/subir/completar', { key, uploadId, partes: Object.entries(etags).map(([n, etag]) => ({ n: Number(n), etag })) });
       x.estado = 'hecho'; x.subido = x.file.size;
+      if (x.alTerminar) x.alTerminar(key);
     } catch (e) {
       x.xhrs.forEach((r) => r.abort());
       api('/api/panel/subir/cancelar', { key, uploadId }).catch(() => {});
