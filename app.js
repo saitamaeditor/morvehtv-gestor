@@ -539,14 +539,52 @@
           try { await api('/api/panel/colaboradores/quitar', { usuario: x.usuario }); aviso(`${x.usuario} ya no es colaborador`, 'bien'); } catch (e) { aviso(e.message, 'mal'); }
           pintar();
         };
-        f.append(el('b', null, x.usuario + (x.existe ? '' : ' (cuenta borrada)')), el('span', null, x.secciones.map((s) => s.replace(/\/$/, '')).join(' · ')), el('small', null, `desde ${fecha(x.creado)}`), quitar);
+        const clave = el('button', 'boton fino', 'Contraseña');
+        clave.title = 'Ponerle una contraseña nueva (cierra sus sesiones abiertas)';
+        clave.onclick = async () => {
+          const nueva = await pedirTexto(`Nueva contraseña para ${x.usuario}`, 'Mínimo 8 caracteres. Se cerrarán sus sesiones abiertas: tendrá que entrar con la nueva.', claveAlAzar(), 'Cambiar');
+          if (!nueva) return;
+          try { await api('/api/panel/colaboradores/clave', { usuario: x.usuario, clave: nueva }); mostrarDatos(x.usuario, nueva); } catch (e) { aviso(e.message, 'mal'); }
+        };
+        const botones = el('span', 'botones-colab'); botones.append(clave, quitar);
+        f.append(el('b', null, x.usuario + (x.existe ? '' : ' (cuenta borrada)')), el('span', null, x.secciones.map((s) => s.replace(/\/$/, '')).join(' · ')), el('small', null, `desde ${fecha(x.creado)}`), botones);
         lista.append(f);
       }
       v.append(lista);
-      // Añadir o cambiar
-      v.append(el('h3', null, 'Añadir o cambiar secciones'));
+      // Crear la cuenta del colaborador (usuario, nombre y contraseña)
+      v.append(el('h3', null, 'Crear colaborador'));
+      const crea = el('div', 'colab-form');
+      const cu = el('input'); cu.placeholder = 'Usuario (3 a 20: letras, números, . _ -)'; cu.autocapitalize = 'none'; cu.autocomplete = 'off'; cu.spellcheck = false;
+      const cn = el('input'); cn.placeholder = 'Nombre (opcional)'; cn.autocomplete = 'off';
+      const filaClave = el('div', 'fila-clave');
+      const cc = el('input'); cc.placeholder = 'Contraseña (mínimo 8)'; cc.autocomplete = 'new-password'; cc.value = claveAlAzar();
+      const otra = el('button', 'boton fino', '↻ Otra'); otra.title = 'Generar otra contraseña segura'; otra.onclick = () => { cc.value = claveAlAzar(); };
+      filaClave.append(cc, otra);
+      const casillasC = el('div', 'colab-secciones');
+      const marcasC = d.secciones.map((s) => {
+        const l = el('label', 'check'); const c = el('input'); c.type = 'checkbox'; c.value = s;
+        l.append(c, document.createTextNode(' ' + s.replace(/\/$/, ''))); casillasC.append(l); return c;
+      });
+      const crear = el('button', 'boton primario', 'Crear cuenta de colaborador');
+      crear.onclick = async () => {
+        const secciones = marcasC.filter((c) => c.checked).map((c) => c.value);
+        const usuario = cu.value.trim().toLowerCase();
+        if (!/^[a-z0-9._-]{3,20}$/.test(usuario)) return aviso('El usuario debe tener de 3 a 20 caracteres: letras, números, punto, guion o guion bajo', 'mal');
+        if (cc.value.length < 8) return aviso('La contraseña debe tener al menos 8 caracteres', 'mal');
+        if (!secciones.length) return aviso('Marca al menos una sección', 'mal');
+        crear.disabled = true;
+        try {
+          await api('/api/panel/colaboradores/crear', { usuario, nombre: cn.value.trim(), clave: cc.value, secciones });
+          mostrarDatos(usuario, cc.value);
+        } catch (e) { aviso(e.message, 'mal'); crear.disabled = false; }
+      };
+      crea.append(cu, cn, filaClave, el('small', null, 'Secciones en las que puede subir:'), casillasC, crear);
+      v.append(crea);
+
+      // Añadir o cambiar (a alguien que ya tiene cuenta)
+      v.append(el('h3', null, 'Dar permiso a una cuenta que ya existe'));
       const form = el('div', 'colab-form');
-      const u = el('input'); u.placeholder = 'Usuario de MorvehTV (tiene que estar registrado)'; u.autocapitalize = 'none';
+      const u = el('input'); u.placeholder = 'Usuario de MorvehTV (ya registrado)'; u.autocapitalize = 'none';
       const casillas = el('div', 'colab-secciones');
       const marcas = d.secciones.map((s) => {
         const l = el('label', 'check'); const c = el('input'); c.type = 'checkbox'; c.value = s;
@@ -565,8 +603,27 @@
       v.append(form);
       const pie = el('div', 'botones'); const c = el('button', 'boton', 'Cerrar'); c.onclick = () => cerrar(null); pie.append(c); v.append(pie);
     }
+    // Los datos para entrar, para copiarlos y pasárselos al colaborador (solo se ven esta vez)
+    function mostrarDatos(usuario, clave) {
+      v.innerHTML = '';
+      v.append(el('h2', null, '✅ Listo'), el('p', null, 'Pásale estos datos al colaborador (por ejemplo, por mensaje privado). La contraseña no se vuelve a mostrar: cópiala ahora.'));
+      const caja = el('div', 'datos-colab');
+      const texto = `Gestor de MorvehTV: ${location.origin}${location.pathname}\nUsuario: ${usuario}\nContraseña: ${clave}`;
+      caja.append(el('pre', null, texto));
+      const copiar = el('button', 'boton primario', 'Copiar datos');
+      copiar.onclick = () => { navigator.clipboard.writeText(texto).then(() => { copiar.textContent = '✓ Copiado'; }, () => aviso('No se pudo copiar: selecciónalo a mano', 'mal')); };
+      const volver = el('button', 'boton', 'Volver a colaboradores'); volver.onclick = pintar;
+      const fila = el('div', 'botones'); fila.append(volver, copiar);
+      v.append(caja, el('p', null, 'Con estos datos también puede entrar en la web y la app de MorvehTV.'), fila);
+    }
     pintar();
   }, { grande: true });
+  // Contraseña segura al azar (sin letras que se confunden: 0/O, 1/l/I)
+  function claveAlAzar() {
+    const letras = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const n = new Uint32Array(12); crypto.getRandomValues(n);
+    return [...n].map((x) => letras[x % letras.length]).join('');
+  }
 
   // ---------- Registro: quién hizo qué ----------
   $('#b-registro').onclick = () => ventana(async (v, cerrar) => {

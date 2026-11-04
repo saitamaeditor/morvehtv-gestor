@@ -196,6 +196,9 @@ label { display: flex; flex-direction: column; gap: 6px; color: var(--suave); fo
 .ventana .colab-secciones label { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; font-size: 14px; width: auto; margin: 0; }
 .ventana .colab-secciones input[type=checkbox] { width: 18px; height: 18px; margin: 0; padding: 0; flex: none; }
 .colab-form .boton { align-self: flex-start; }
+.fila-clave { display: flex; gap: 8px; } .fila-clave input { flex: 1; font-family: ui-monospace, Consolas, monospace; }
+.botones-colab { display: inline-flex; gap: 6px; justify-self: end; }
+.datos-colab pre { margin: 0; padding: 14px; border-radius: 10px; background: var(--fondo); border: 1px solid var(--borde); font-size: 15px; white-space: pre-wrap; word-break: break-all; user-select: all; }
 
 /* Anuncios */
 .lista-anuncios { display: flex; flex-direction: column; gap: 10px; }
