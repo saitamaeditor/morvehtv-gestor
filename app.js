@@ -242,12 +242,12 @@
   }
 
   // ---------- Carpetas ----------
-  $('#b-carpeta').onclick = async () => {
+  if ($('#b-carpeta')) $('#b-carpeta').onclick = async () => {
     const n = await pedirTexto(actual ? 'Nueva carpeta' : 'Nueva sección', actual ? `Dentro de ${actual}` : 'Una carpeta principal de e2: saldrá como categoría en la app y tendrá su tema en Telegram.', '', 'Crear');
     if (!n) return;
     try { await api('/api/panel/carpeta', { carpeta: `${actual}${n}/` }); aviso(`Carpeta «${n}» creada`, 'bien'); cargar(); resumen(); } catch (e) { aviso(e.message, 'mal'); }
   };
-  $('#b-serie').onclick = () => {
+  if ($('#b-serie')) $('#b-serie').onclick = () => {
     if (!actual) return aviso('Entra primero en una sección (p. ej. SERIES)', 'mal');
     ventana((v, cerrar) => {
       v.append(el('h2', null, 'Nueva serie'), el('p', null, `Se crea en ${actual} con sus carpetas de temporada.`));
