@@ -403,6 +403,47 @@
     i.focus();
   });
 
+
+  // ---------- Anuncios y planes ----------
+  // Los anuncios propios los ve el plan Básico en la web y la app (con AdSense, si está puesto en
+  // Render, la web usa AdSense; la app siempre los propios). Premium no ve ninguno.
+  $('#b-anuncios').onclick = () => ventana(async (v, cerrar) => {
+    v.innerHTML = '<div class="cargando">Cargando…</div>';
+    let d;
+    try { d = await api('/api/panel/anuncios'); } catch (e) { v.innerHTML = ''; v.append(el('div', 'vacio', e.message)); return; }
+    v.innerHTML = '';
+    const pagosTexto = d.pagos === 'ok' ? 'Pagos con Stripe activados' : `Pagos sin activar (${d.pagos}): nadie puede hacerse Premium todavía`;
+    v.append(el('h2', null, '📣 Anuncios y planes'),
+      el('p', null, `${d.planes.cuentas} cuentas: ${d.planes.premium} Premium (sin anuncios) y ${d.planes.basico} Básico (con anuncios). ${pagosTexto}. ${d.adsense ? 'Google AdSense activado en la web.' : 'Sin Google AdSense: se usan estos anuncios propios.'}`));
+    const lista = el('div', 'lista-anuncios');
+    const anuncios = d.anuncios.map((a) => ({ ...a }));
+    function pintar() {
+      lista.innerHTML = '';
+      if (!anuncios.length) lista.append(el('div', 'vacio', 'Sin anuncios propios: en su hueco sale un aviso de Premium.'));
+      anuncios.forEach((a, n) => {
+        const f = el('div', 'anuncio-ed');
+        const campo = (etq, clave, ph) => { const l = el('label', null, etq); const i = el('input'); i.value = a[clave] ?? ''; i.placeholder = ph; i.oninput = () => { a[clave] = i.value; }; l.append(i); return l; };
+        const activo = el('label', 'check'); const c = el('input'); c.type = 'checkbox'; c.checked = a.activo !== false; c.onchange = () => { a.activo = c.checked; }; activo.append(c, document.createTextNode(' Activo'));
+        const quitar = el('button', 'boton peligro', 'Quitar'); quitar.onclick = () => { anuncios.splice(n, 1); pintar(); };
+        const pie = el('div', 'pie-anuncio'); pie.append(activo, quitar);
+        f.append(campo('Título', 'titulo', 'Ej.: Tu tienda'), campo('Texto', 'texto', 'Una frase corta'),
+          campo('Imagen (https://…)', 'imagen', 'https://…/banner.jpg'), campo('Enlace al pulsar (https://…)', 'enlace', 'https://…'), pie);
+        lista.append(f);
+      });
+    }
+    pintar();
+    const mas = el('button', 'boton', '+ Añadir anuncio'); mas.onclick = () => { anuncios.push({ titulo: '', texto: '', imagen: '', enlace: '', activo: true }); pintar(); };
+    v.append(lista, mas);
+    const fila = el('div', 'botones');
+    const no = el('button', 'boton', 'Cerrar'); no.onclick = () => cerrar(null);
+    const si = el('button', 'boton primario', 'Guardar');
+    si.onclick = async () => {
+      si.disabled = true;
+      try { const r = await api('/api/panel/anuncios', { anuncios }); aviso(`Guardados ${r.anuncios.length} anuncios`, 'bien'); cerrar(true); } catch (e) { aviso(e.message, 'mal'); si.disabled = false; }
+    };
+    fila.append(no, si); v.append(fila);
+  }, { grande: true });
+
   // ---------- Registro: quién hizo qué ----------
   $('#b-registro').onclick = () => ventana(async (v, cerrar) => {
     v.append(el('h2', null, '📜 Registro'), el('p', null, 'Las últimas acciones hechas desde el gestor: quién y cuándo. No se guardan IPs ni otros datos personales.'));

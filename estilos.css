@@ -189,6 +189,15 @@ label { display: flex; flex-direction: column; gap: 6px; color: var(--suave); fo
 .aviso.bien { border-color: var(--bien); }
 .aviso.fijo { border-color: var(--acento); }
 
+/* Anuncios */
+.lista-anuncios { display: flex; flex-direction: column; gap: 10px; }
+.anuncio-ed { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; padding: 12px; border: 1px solid var(--borde); border-radius: 10px; }
+.anuncio-ed label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--suave); }
+.anuncio-ed label.check { flex-direction: row; align-items: center; gap: 6px; color: var(--texto); }
+.anuncio-ed input:not([type]) , .anuncio-ed input[type=text] { width: 100%; }
+.anuncio-ed .pie-anuncio { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; }
+@media (max-width: 600px) { .anuncio-ed { grid-template-columns: minmax(0, 1fr); } }
+
 /* Papelera y registro */
 .lateral .extra { display: flex; gap: 6px; flex-wrap: wrap; margin: 14px 8px 0; }
 .papelera, .registro { display: flex; flex-direction: column; border: 1px solid var(--borde); border-radius: 10px; overflow: hidden; }
