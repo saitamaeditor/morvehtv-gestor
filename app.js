@@ -43,16 +43,24 @@
   }
 
   // ---------- Ventanas (en vez de alert/prompt/confirm) ----------
-  function ventana(montar, { grande = false } = {}) {
+  // Se pueden apilar: un aviso («Ya existe…») sale encima de la ventana de «Añadir título» sin cerrarla
+  const pila = [];
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && pila.length) pila[pila.length - 1](null); });
+  function ventana(montar, { grande = false, fija = false } = {}) {
     return new Promise((listo) => {
-      const v = $('#ventana');
-      v.innerHTML = '';
-      v.classList.toggle('grande', grande);
-      $('#velo').hidden = false;
-      const cerrar = (valor) => { $('#velo').hidden = true; v.innerHTML = ''; document.removeEventListener('keydown', esc); listo(valor); };
-      const esc = (e) => { if (e.key === 'Escape') cerrar(null); };
-      document.addEventListener('keydown', esc);
-      $('#velo').onclick = (e) => { if (e.target === $('#velo')) cerrar(null); };
+      const velo = el('div', 'velo');
+      const v = el('div', `ventana${grande ? ' grande' : ''}`);
+      v.setAttribute('role', 'dialog'); v.setAttribute('aria-modal', 'true');
+      velo.style.zIndex = 40 + pila.length;
+      velo.append(v); document.body.append(velo);
+      let hecho = false;
+      const cerrar = (valor) => {
+        if (hecho) return; hecho = true;
+        velo.remove(); pila.splice(pila.indexOf(cerrar), 1); listo(valor);
+      };
+      pila.push(cerrar);
+      // Las ventanas «fijas» solo se cierran con su botón (no al tocar fuera por descuido)
+      if (!fija) velo.onclick = (e) => { if (e.target === velo) cerrar(null); };
       montar(v, cerrar);
     });
   }
@@ -429,11 +437,26 @@
       const volver = el('button', 'boton', '← Buscar otro'); volver.onclick = () => pintarBusqueda(busqueda);
       const subir = el('button', 'boton primario', 'Subir');
       pie.append(resumenTxt, volver, subir);
+      // Capítulos ya mandados a la cola (la ventana sigue abierta y enseña cómo va cada uno)
+      const enviados = new Map(); // 'T-E' → elemento de la cola
+      const activo = (x) => x && (x.estado === 'espera' || x.estado === 'subiendo');
       const actualizarPie = () => {
         const n = asignados.size;
-        resumenTxt.textContent = n ? `${n} archivo${n === 1 ? '' : 's'} elegido${n === 1 ? '' : 's'}` : (serie ? 'Elige el archivo de cada capítulo' : 'Elige el archivo de la película');
+        const env = [...enviados.values()];
+        const hechos = env.filter((x) => x.estado === 'hecho').length;
+        const enCurso = env.filter(activo).length;
+        const fallos = env.filter((x) => x.estado === 'error').length;
+        const partes = [];
+        if (n) partes.push(`${n} elegido${n === 1 ? '' : 's'}`);
+        if (enCurso) partes.push(`⬆ ${enCurso} subiendo`);
+        if (hechos) partes.push(`✓ ${hechos} subido${hechos === 1 ? '' : 's'}`);
+        if (fallos) partes.push(`✕ ${fallos} con error`);
+        resumenTxt.textContent = partes.length ? partes.join(' · ') : (serie ? 'Elige el archivo de cada capítulo' : 'Elige el archivo de la película');
         subir.disabled = !n || !seccion;
         subir.textContent = n > 1 ? `Subir ${n} archivos` : 'Subir';
+        // Mientras haya capítulos en cola no se cambia la carpeta (se partiría la serie en dos sitios)
+        sel.disabled = env.length > 0;
+        volver.textContent = enCurso ? '← Buscar otro (siguen subiendo)' : '← Buscar otro';
       };
 
       // Una fila por archivo a elegir
@@ -443,15 +466,29 @@
         const b = el('button', 'boton');
         const pintar = () => {
           const file = asignados.get(clave);
-          f.classList.toggle('con', !!file);
-          nombreF.textContent = file ? `✓ ${file.name} · ${tam(file.size)}` : 'Sin archivo';
-          nombreF.title = file ? file.name : '';
-          b.textContent = file ? '✕' : 'Elegir';
-          b.title = file ? 'Quitar' : 'Elegir el archivo';
+          const x = !file && enviados.get(clave);
+          f.className = `episodio${file ? ' con' : ''}${x ? ` ${x.estado}` : ''}`;
+          if (file) {
+            nombreF.textContent = `✓ ${file.name} · ${tam(file.size)}`;
+            b.textContent = '✕'; b.title = 'Quitar';
+          } else if (x) {
+            const pct = x.file.size ? Math.floor(100 * x.subido / x.file.size) : 0;
+            nombreF.textContent = x.estado === 'subiendo' ? `⬆ Subiendo ${pct}%${x.velocidad ? ` · ${tam(x.velocidad)}/s` : ''}`
+              : x.estado === 'espera' ? '⏳ En cola' : x.estado === 'hecho' ? '✓ Subido' : x.estado === 'error' ? `✕ ${x.error}` : 'Cancelado';
+            f.style.setProperty('--pct', `${x.estado === 'hecho' ? 100 : pct}%`);
+            b.textContent = activo(x) ? '✕' : x.estado === 'hecho' ? 'Cambiar' : 'Elegir';
+            b.title = activo(x) ? 'Cancelar la subida' : 'Elegir otro archivo';
+          } else {
+            nombreF.textContent = 'Sin archivo';
+            b.textContent = 'Elegir'; b.title = 'Elegir el archivo';
+          }
+          nombreF.title = file ? file.name : (x?.nombre ?? '');
           actualizarPie();
         };
         b.onclick = async () => {
+          const x = enviados.get(clave);
           if (asignados.has(clave)) asignados.delete(clave);
+          else if (activo(x)) cancelar(x);
           else { const [file] = await elegirArchivos(false); if (file) asignados.set(clave, file); }
           pintar();
         };
@@ -480,8 +517,12 @@
             if (ep) { asignados.set(`${t}-${ep.numero}`, file); colocados++; } else sinNumero.push(file);
           }
           // Los que no dicen su número, en orden, en los capítulos libres de esa temporada
+          // (libres: sin archivo elegido y sin subir o subiéndose ya)
           if (temporada != null && sinNumero.length) {
-            const libres = ficha.temporadas.find((x) => x.numero === temporada).episodios.filter((e) => !asignados.has(`${temporada}-${e.numero}`));
+            const libres = ficha.temporadas.find((x) => x.numero === temporada).episodios.filter((e) => {
+              const k = `${temporada}-${e.numero}`; const x = enviados.get(k);
+              return !asignados.has(k) && !(x && (activo(x) || x.estado === 'hecho'));
+            });
             sinNumero.sort((a, b) => a.name.localeCompare(b.name, 'es', { numeric: true }))
               .forEach((file, i) => { if (libres[i]) { asignados.set(`${temporada}-${libres[i].numero}`, file); colocados++; } });
           }
@@ -526,23 +567,36 @@
             for (const [clave, file] of asignados) {
               const [t, n] = clave.split('-').map(Number);
               const ep = ficha.temporadas.find((x) => x.numero === t).episodios.find((x) => x.numero === n);
-              trabajos.push({ file, carpeta: carpetaDe(t), nombre: nombreDe(t, ep, file) });
+              trabajos.push({ clave, file, carpeta: carpetaDe(t), nombre: nombreDe(t, ep, file) });
             }
             const carpetas = [`${seccion}${base}/`, ...new Set(trabajos.map((x) => x.carpeta))];
             await api('/api/panel/carpeta', { carpetas });
-            await api('/api/panel/vincular', { clave: `${seccion}${base}/`, tmdbId: ficha.tmdbId, tipo: 'serie' }).catch(() => {});
+            if (!enviados.size) await api('/api/panel/vincular', { clave: `${seccion}${base}/`, tmdbId: ficha.tmdbId, tipo: 'serie' }).catch(() => {});
             trabajos.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { numeric: true }));
           }
-          cerrar(true);
-          irA(serie ? `${seccion}${base}/` : seccion);
-          for (const x of trabajos) encolar(x.file, x.carpeta, x.nombre);
+          if (!serie) {
+            cerrar(true);
+            irA(seccion);
+            for (const x of trabajos) encolar(x.file, x.carpeta, x.nombre);
+          } else {
+            // Serie: la ventana se queda abierta para seguir eligiendo capítulos mientras suben
+            if (!enviados.size) irA(`${seccion}${base}/`);
+            for (const x of trabajos) {
+              const q = encolar(x.file, x.carpeta, x.nombre);
+              enviados.set(x.clave, q);
+              asignados.delete(x.clave);
+              const fila = filas.get(x.clave);
+              q.alPintar = () => { if (fila.isConnected) fila.pintar(); };
+            }
+            filas.forEach((f) => f.pintar());
+          }
           aviso(`${trabajos.length} archivo${trabajos.length === 1 ? '' : 's'} a la cola de subida`, 'bien');
-        } catch (e) { aviso(e.message, 'mal'); subir.disabled = false; }
+        } catch (e) { aviso(e.message, 'mal'); actualizarPie(); }
       };
     }
 
     pintarBusqueda();
-  }, { grande: true });
+  }, { grande: true, fija: true });
 
   // ---------- Subidas: directas a e2 por trozos firmados ----------
   const cola = [];
@@ -567,8 +621,8 @@
   }
   // Un archivo a la cola de subidas, con su carpeta y su nombre en e2
   function encolar(file, carpeta, nombre) {
+    const x = { file, nombre, carpeta, estado: 'espera', subido: 0, xhrs: new Set() };
     {
-      const x = { file, nombre, carpeta, estado: 'espera', subido: 0, xhrs: new Set() };
       x.li = el('li', 'sub');
       const linea = el('div', 'linea');
       x.quitar = el('button', null, '✕'); x.quitar.title = 'Cancelar';
@@ -584,6 +638,7 @@
     }
     $('#subidas').hidden = !cola.length;
     if (!subiendo) procesar();
+    return x;
   }
   function pintarSub(x) {
     x.li.className = `sub ${x.estado}`;
@@ -596,6 +651,7 @@
     $('#sub-titulo').textContent = quedan ? `Subiendo ${quedan} archivo${quedan === 1 ? '' : 's'}…` : 'Subidas terminadas';
     x.quitar.textContent = x.estado === 'espera' || x.estado === 'subiendo' ? '✕' : '–';
     x.quitar.title = x.estado === 'espera' || x.estado === 'subiendo' ? 'Cancelar' : 'Quitar de la lista';
+    x.alPintar?.();
   }
   function cancelar(x) {
     if (x.estado === 'subiendo') { x.cancelado = true; x.xhrs.forEach((r) => r.abort()); return; }

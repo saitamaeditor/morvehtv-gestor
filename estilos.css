@@ -166,6 +166,11 @@ label { display: flex; flex-direction: column; gap: 6px; color: var(--suave); fo
 .episodio .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .episodio .f { color: var(--suave); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .episodio.con .f { color: var(--bien); }
+/* Capítulos ya en la cola: el fondo se va llenando con lo subido */
+.episodio.espera, .episodio.subiendo, .episodio.hecho { background: linear-gradient(90deg, rgba(70,180,110,.13) var(--pct, 0%), transparent var(--pct, 0%)); }
+.episodio.subiendo .f, .episodio.espera .f { color: var(--texto, #e8e8ea); }
+.episodio.hecho .f { color: var(--bien); }
+.episodio.error .f { color: var(--mal, #e5534b); }
 .episodio .boton { padding: 5px 10px; }
 .pie-titulo { position: sticky; bottom: -22px; margin: 0 -22px -22px; padding: 14px 22px; background: var(--panel); border-top: 1px solid var(--borde);
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
