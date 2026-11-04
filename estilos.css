@@ -199,12 +199,12 @@ label { display: flex; flex-direction: column; gap: 6px; color: var(--suave); fo
 .lote .info small { color: var(--suave); }
 .lote .acciones { display: flex; gap: 8px; flex-wrap: wrap; }
 .registro { max-height: 60vh; overflow-y: auto; }
-.fila-registro { display: grid; grid-template-columns: 130px 110px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--borde); font-size: 13.5px; }
+.fila-registro { display: grid; grid-template-columns: 130px 110px minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--borde); font-size: 13.5px; }
 .fila-registro small { color: var(--suave); }
 .fila-registro span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fila-registro.peligro b { color: var(--mal); }
 @media (max-width: 760px) {
-  .fila-registro { grid-template-columns: minmax(0, 1fr) auto; }
+  .fila-registro { grid-template-columns: auto minmax(0, 1fr); }
   .fila-registro span { grid-column: 1 / span 2; white-space: normal; }
 }
 

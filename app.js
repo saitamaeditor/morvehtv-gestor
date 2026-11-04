@@ -405,7 +405,7 @@
 
   // ---------- Registro: quién hizo qué ----------
   $('#b-registro').onclick = () => ventana(async (v, cerrar) => {
-    v.append(el('h2', null, '📜 Registro'), el('p', null, 'Las últimas acciones hechas desde el gestor: quién, cuándo y desde qué conexión.'));
+    v.append(el('h2', null, '📜 Registro'), el('p', null, 'Las últimas acciones hechas desde el gestor: quién y cuándo. No se guardan IPs ni otros datos personales.'));
     const caja = el('div', 'registro'); caja.innerHTML = '<div class="cargando">Cargando…</div>';
     v.append(caja);
     const pie = el('div', 'botones'); const c = el('button', 'boton', 'Cerrar'); c.onclick = () => cerrar(null); pie.append(c); v.append(pie);
@@ -416,7 +416,7 @@
       for (const x of lista) {
         const f = el('div', `fila-registro${/borra|elimina/.test(x.accion) ? ' peligro' : ''}`);
         const que = x.claves?.length ? `${x.claves.map(nombreDe).slice(0, 2).join(', ')}${x.total > 2 ? ` y ${x.total - 2} más` : ''}` : '';
-        f.append(el('small', null, fecha(x.fecha)), el('b', null, x.usuario), el('span', null, `${x.accion}${que ? `: ${que}` : ''}${x.objetos != null ? ` (${x.objetos})` : ''}`), el('small', 'ip', x.ip || ''));
+        f.append(el('small', null, fecha(x.fecha)), el('b', null, x.usuario), el('span', null, `${x.accion}${que ? `: ${que}` : ''}${x.objetos != null ? ` (${x.objetos})` : ''}`));
         f.title = (x.claves ?? []).join('\n');
         caja.append(f);
       }
