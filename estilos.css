@@ -189,6 +189,14 @@ label { display: flex; flex-direction: column; gap: 6px; color: var(--suave); fo
 .aviso.bien { border-color: var(--bien); }
 .aviso.fijo { border-color: var(--acento); }
 
+/* Colaboradores */
+.colab-form { display: flex; flex-direction: column; gap: 8px; }
+.colab-form input:not([type]) { width: 100%; }
+.colab-secciones { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.ventana .colab-secciones label { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; font-size: 14px; width: auto; margin: 0; }
+.ventana .colab-secciones input[type=checkbox] { width: 18px; height: 18px; margin: 0; padding: 0; flex: none; }
+.colab-form .boton { align-self: flex-start; }
+
 /* Anuncios */
 .lista-anuncios { display: flex; flex-direction: column; gap: 10px; }
 .anuncio-ed { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; padding: 12px; border: 1px solid var(--borde); border-radius: 10px; }
@@ -247,3 +255,6 @@ label { display: flex; flex-direction: column; gap: 6px; color: var(--suave); fo
   .acciones-fila { opacity: 1; grid-column: 3; grid-row: 2; }
   .acciones-fila button { padding: 4px 7px; }
 }
+
+/* Un colaborador no tiene ninguno de los botones de administración: sin hueco vacío */
+.colaborador .lateral .extra { display: none; }

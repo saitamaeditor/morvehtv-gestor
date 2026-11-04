@@ -109,8 +109,14 @@
     b.disabled = false; b.textContent = 'Entrar';
   };
 
+  // Papel de quien entra: administrador (todo) o colaborador (subir en sus secciones)
+  let soyAdmin = true;
   function arrancar(yo) {
-    $('#usuario').textContent = yo.nombre || yo.usuario;
+    soyAdmin = yo.rol !== 'colaborador';
+    document.documentElement.classList.toggle('colaborador', !soyAdmin);
+    $('#usuario').textContent = (yo.nombre || yo.usuario) + (soyAdmin ? '' : ' · colaborador');
+    // Lo que un colaborador no puede usar, ni se ve
+    ['#b-papelera', '#b-registro', '#b-anuncios', '#b-usdc', '#b-colaboradores', '#sel-mover', '#sel-borrar'].forEach((s) => { const b = $(s); if (b) b.hidden = !soyAdmin; });
     $('#vista-entrar').hidden = true; $('#vista-panel').hidden = false;
     $('#ir-web').href = window.MORVEHTV.web;
     irA(decodeURIComponent(location.hash.slice(1)));
@@ -210,9 +216,11 @@
       accion('▶', 'Ver o escuchar', () => abrirEnlace(key, false));
       accion('⬇', 'Descargar', () => abrirEnlace(key, true));
     }
-    accion('✎', 'Renombrar', () => renombrar(key));
-    accion('↗', 'Mover a otra carpeta', () => mover([key]));
-    accion('🗑', 'Borrar', () => borrar([key]));
+    if (soyAdmin) {
+      accion('✎', 'Renombrar', () => renombrar(key));
+      accion('↗', 'Mover a otra carpeta', () => mover([key]));
+      accion('🗑', 'Borrar', () => borrar([key]));
+    }
     f.append(ch, n, el('span', 'num tam', esCarpeta ? '' : tam(a.tamano)), el('span', 'num', esCarpeta ? '' : fecha(a.fecha)), acc);
     return f;
   }
@@ -503,6 +511,57 @@
         l.append(f);
       }
       v.append(l);
+      const pie = el('div', 'botones'); const c = el('button', 'boton', 'Cerrar'); c.onclick = () => cerrar(null); pie.append(c); v.append(pie);
+    }
+    pintar();
+  }, { grande: true });
+
+  // ---------- Colaboradores ----------
+  // Cuentas de MorvehTV que pueden entrar al gestor para SUBIR contenido y crear carpetas, solo
+  // en las secciones que se les den. No pueden borrar, mover ni ver la papelera, el registro, los
+  // anuncios o los pagos. Se quitan cuando se quiera y dejan de poder al momento.
+  $('#b-colaboradores').onclick = () => ventana(async (v, cerrar) => {
+    async function pintar() {
+      v.innerHTML = '<div class="cargando">Cargando…</div>';
+      let d;
+      try { d = await api('/api/panel/colaboradores'); } catch (e) { v.innerHTML = ''; v.append(el('div', 'vacio', e.message)); return; }
+      v.innerHTML = '';
+      v.append(el('h2', null, '👥 Colaboradores'),
+        el('p', null, 'Pueden entrar en este gestor con su cuenta de MorvehTV para subir contenido y crear carpetas, solo en las secciones que elijas. No pueden borrar ni mover nada, ni ver la papelera, el registro, los anuncios o los pagos. Todo lo que suban queda en el registro con su nombre.'));
+      const lista = el('div', 'registro');
+      if (!d.colaboradores.length) lista.append(el('div', 'vacio', 'Todavía no hay colaboradores'));
+      for (const x of d.colaboradores) {
+        const f = el('div', 'fila-registro');
+        const quitar = el('button', 'boton fino peligro', 'Quitar');
+        quitar.onclick = async () => {
+          if (!(await confirmar('Quitar colaborador', `${x.usuario} dejará de poder entrar en el gestor. Lo que ya subió se queda.`, null, 'Quitar', true))) return;
+          try { await api('/api/panel/colaboradores/quitar', { usuario: x.usuario }); aviso(`${x.usuario} ya no es colaborador`, 'bien'); } catch (e) { aviso(e.message, 'mal'); }
+          pintar();
+        };
+        f.append(el('b', null, x.usuario + (x.existe ? '' : ' (cuenta borrada)')), el('span', null, x.secciones.map((s) => s.replace(/\/$/, '')).join(' · ')), el('small', null, `desde ${fecha(x.creado)}`), quitar);
+        lista.append(f);
+      }
+      v.append(lista);
+      // Añadir o cambiar
+      v.append(el('h3', null, 'Añadir o cambiar secciones'));
+      const form = el('div', 'colab-form');
+      const u = el('input'); u.placeholder = 'Usuario de MorvehTV (tiene que estar registrado)'; u.autocapitalize = 'none';
+      const casillas = el('div', 'colab-secciones');
+      const marcas = d.secciones.map((s) => {
+        const l = el('label', 'check'); const c = el('input'); c.type = 'checkbox'; c.value = s;
+        l.append(c, document.createTextNode(' ' + s.replace(/\/$/, ''))); casillas.append(l); return c;
+      });
+      const dar = el('button', 'boton primario', 'Dar permiso');
+      dar.onclick = async () => {
+        const secciones = marcas.filter((c) => c.checked).map((c) => c.value);
+        if (!u.value.trim()) return aviso('Escribe el usuario', 'mal');
+        if (!secciones.length) return aviso('Marca al menos una sección', 'mal');
+        dar.disabled = true;
+        try { await api('/api/panel/colaboradores', { usuario: u.value.trim().toLowerCase(), secciones }); aviso('Listo: ya puede entrar en el gestor', 'bien'); pintar(); }
+        catch (e) { aviso(e.message, 'mal'); dar.disabled = false; }
+      };
+      form.append(u, el('small', null, 'Secciones en las que puede subir:'), casillas, dar);
+      v.append(form);
       const pie = el('div', 'botones'); const c = el('button', 'boton', 'Cerrar'); c.onclick = () => cerrar(null); pie.append(c); v.append(pie);
     }
     pintar();
