@@ -412,7 +412,7 @@
     let d;
     try { d = await api('/api/panel/anuncios'); } catch (e) { v.innerHTML = ''; v.append(el('div', 'vacio', e.message)); return; }
     v.innerHTML = '';
-    const pagosTexto = /^ok/.test(d.pagos) ? `Pagos con Stripe activados ${d.pagos.replace(/^ok\s*/, '')}` : `Pagos con Stripe sin activar (${d.pagos}): nadie puede hacerse Premium todavía`;
+    const pagosTexto = /^ok/.test(d.pagos) ? `Pagos con Patreon activados ${d.pagos.replace(/^ok\s*/, '')}` : `Pagos con Patreon sin activar (${d.pagos}): nadie puede hacerse Premium todavía`;
     v.append(el('h2', null, '📣 Anuncios y planes'),
       el('p', null, `${d.planes.cuentas} cuentas: ${d.planes.premium} Premium de pago, ${d.planes.basico} Básico (con anuncios) y ${d.planes.admins ?? 0} administradores (Premium de por vida). ${pagosTexto}. ${d.adsense ? 'Google AdSense activado en la web.' : 'Sin Google AdSense: se usan estos anuncios propios.'}`));
     const lista = el('div', 'lista-anuncios');
