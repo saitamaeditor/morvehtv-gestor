@@ -416,7 +416,7 @@
   // ---------- Anuncios y planes ----------
   // Los anuncios propios los ve el plan Básico en la web y la app (con AdSense, si está puesto en
   // Render, la web usa AdSense; la app siempre los propios). Premium no ve ninguno.
-  $('#b-anuncios').onclick = () => ventana(async (v, cerrar) => {
+  if ($('#b-anuncios')) $('#b-anuncios').onclick = () => ventana(async (v, cerrar) => {
     v.innerHTML = '<div class="cargando">Cargando…</div>';
     let d;
     try { d = await api('/api/panel/anuncios'); } catch (e) { v.innerHTML = ''; v.append(el('div', 'vacio', e.message)); return; }
@@ -471,7 +471,7 @@
   // ---------- Pagos en USDC ----------
   // Lo que se ha pagado (cada pago enlaza a basescan.org, el explorador público de Base) y los
   // pagos que llegaron con un importe que no era de ningún pedido, para dárselos a quien sea
-  $('#b-usdc').onclick = () => ventana(async (v, cerrar) => {
+  if ($('#b-usdc')) $('#b-usdc').onclick = () => ventana(async (v, cerrar) => {
     async function pintar() {
       v.innerHTML = '<div class="cargando">Cargando…</div>';
       let d;
