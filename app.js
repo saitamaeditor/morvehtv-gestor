@@ -11,6 +11,12 @@
   // bucket, así que se sube con 12 conexiones; si la segunda falla, se sigue solo con la primera.
   const CONCURRENCIA = 6;
   let segundaRota = false;
+  // Lo más rápido: cada trozo al servidor de MorvehTV, que lo reenvía a e2 con muchas conexiones
+  // (el navegador le habla por HTTP/2, así que van 16 trozos a la vez por una sola conexión). Si
+  // el servidor falla varias veces seguidas, se vuelve a subir directo a e2 como antes.
+  const POR_SERVIDOR = 16;
+  let servidorRoto = false;
+  let fallosServidor = 0;
 
   let token = null;
   try { token = localStorage.getItem('gestor-token'); } catch {}
@@ -990,16 +996,21 @@
     cola.splice(cola.indexOf(x), 1); x.li.remove();
     $('#subidas').hidden = !cola.length;
   }
-  function put(url, blob, x, alAvanzar) {
+  // porServidor: el trozo va al servidor de MorvehTV (con la sesión) y este lo pasa a e2; el
+  // servidor devuelve la huella del trozo en la respuesta en vez de en la cabecera ETag
+  function put(url, blob, x, alAvanzar, porServidor) {
     return new Promise((ok, mal) => {
       const r = new XMLHttpRequest();
       x.xhrs.add(r);
       r.open('PUT', url);
+      if (porServidor) { r.setRequestHeader('authorization', `Bearer ${token}`); r.setRequestHeader('content-type', 'application/octet-stream'); }
       r.upload.onprogress = (e) => alAvanzar(e.loaded);
       r.onload = () => {
         x.xhrs.delete(r);
         if (r.status >= 200 && r.status < 300) {
-          const etag = r.getResponseHeader('ETag');
+          let etag = null;
+          if (porServidor) { try { etag = JSON.parse(r.responseText).etag; } catch {} return etag ? ok(etag) : mal(Object.assign(new Error('Respuesta rara del servidor'), { status: 502 })); }
+          etag = r.getResponseHeader('ETag');
           return etag ? ok(etag) : mal(new Error('e2 no deja leer la respuesta (reglas CORS del bucket)'));
         }
         mal(Object.assign(new Error(`e2 respondió ${r.status}`), { status: r.status }));
@@ -1060,14 +1071,26 @@
         const n = pendientes.shift();
         const blob = x.file.slice((n - 1) * tamParte, Math.min(n * tamParte, x.file.size));
         for (let intento = 1; ; intento++) {
-          const porSegunda = segunda && !segundaRota && !!urls2[n];
+          const porServidor = !servidorRoto;
+          const porSegunda = !porServidor && segunda && !segundaRota && !!urls2[n];
           try {
-            etags[n] = await put(await url(n, segunda), blob, x, (b) => { enMarcha.set(n, b); avanzar(); });
+            const destino = porServidor
+              ? `${API}/api/panel/subir/trozo?key=${encodeURIComponent(key)}&uploadId=${encodeURIComponent(uploadId)}&n=${n}`
+              : await url(n, segunda);
+            etags[n] = await put(destino, blob, x, (b) => { enMarcha.set(n, b); avanzar(); }, porServidor);
+            if (porServidor) fallosServidor = 0;
             enMarcha.delete(n); terminado += blob.size; avanzar();
             break;
           } catch (e) {
             if (x.cancelado || roto) throw new Error('Cancelado');
             enMarcha.delete(n); avanzar();
+            // Por el servidor: si no tiene la ruta (versión antigua) o falla 3 veces seguidas, se
+            // deja y este trozo y los siguientes van directos a e2
+            if (porServidor) {
+              if (e.status === 401) throw new Error('La sesión ha caducado: vuelve a entrar');
+              if (e.status === 404 || e.status === 405 || ++fallosServidor >= 3) servidorRoto = true;
+              intento--; await espera(500); continue;
+            }
             // La segunda dirección no funciona (conexión, CORS…): se deja y el trozo va por la primera
             if (porSegunda && (!e.status || e.status < 500)) { segundaRota = true; intento--; continue; }
             if (e.status === 403) { delete urls[n]; delete urls2[n]; }
@@ -1078,10 +1101,14 @@
       }
     }
     try {
-      await url(1); // la primera tanda de direcciones dice si hay segunda dirección
-      const dos = !segundaRota && Object.keys(urls2).length > 0;
-      const n = Math.min(CONCURRENCIA * (dos ? 2 : 1), partes);
-      await Promise.all(Array.from({ length: n }, (_, i) => trabajador(dos && i % 2 === 1)));
+      let n;
+      if (!servidorRoto) n = Math.min(POR_SERVIDOR, partes);
+      else {
+        await url(1); // la primera tanda de direcciones dice si hay segunda dirección
+        n = Math.min(CONCURRENCIA * (!segundaRota && Object.keys(urls2).length > 0 ? 2 : 1), partes);
+      }
+      // (la mitad de los trabajadores usa la segunda dirección de e2 si hay que ir directo)
+      await Promise.all(Array.from({ length: n }, (_, i) => trabajador(i % 2 === 1)));
       await api('/api/panel/subir/completar', { key, uploadId, partes: Object.entries(etags).map(([n, etag]) => ({ n: Number(n), etag })) });
       x.estado = 'hecho'; x.subido = x.file.size;
       if (x.alTerminar) x.alTerminar(key);
