@@ -6,8 +6,11 @@
   const el = (tag, clase, texto) => { const e = document.createElement(tag); if (clase) e.className = clase; if (texto != null) e.textContent = texto; return e; };
   const VIDEO = /\.(mp4|m4v|mkv|webm|mov|avi|ts|wmv|flv)$/i;
   const SUBIBLE = /\.(mp4|m4v|mkv|webm|mov|avi|ts|wmv|flv|srt|vtt|ass|jpe?g|png|webp)$/i;
-  // Trozos que se envían a la vez (los navegadores abren hasta 6 conexiones por servidor)
+  // Trozos que se envían a la vez por dirección (los navegadores abren hasta 6 conexiones por
+  // servidor y e2 no habla HTTP/2). El servidor firma cada trozo para las dos direcciones del
+  // bucket, así que se sube con 12 conexiones; si la segunda falla, se sigue solo con la primera.
   const CONCURRENCIA = 6;
+  let segundaRota = false;
 
   let token = null;
   try { token = localStorage.getItem('gestor-token'); } catch {}
@@ -1017,22 +1020,24 @@
       throw e;
     }
     const { key, uploadId, tamParte, partes } = ini;
-    const urls = {}; const pedidas = new Map();
-    async function url(n) {
-      if (urls[n]) return urls[n];
+    const urls = {}; const urls2 = {}; const pedidas = new Map();
+    // segunda: el trozo va por la otra dirección del bucket (si la hay y no ha fallado)
+    async function url(n, segunda) {
+      if (urls[n]) return segunda && !segundaRota && urls2[n] ? urls2[n] : urls[n];
       // Las direcciones firmadas se piden de 200 en 200 (menos idas y vueltas al servidor)
       const tanda = Math.floor((n - 1) / 200);
       if (!pedidas.has(tanda)) {
         const numeros = [];
         for (let i = tanda * 200 + 1; i <= Math.min(partes, tanda * 200 + 200); i++) numeros.push(i);
-        pedidas.set(tanda, api('/api/panel/subir/partes', { key, uploadId, numeros }).then((r) => Object.assign(urls, r.urls)).finally(() => pedidas.delete(tanda)));
+        pedidas.set(tanda, api('/api/panel/subir/partes', { key, uploadId, numeros })
+          .then((r) => { Object.assign(urls, r.urls); Object.assign(urls2, r.urls2 || {}); }).finally(() => pedidas.delete(tanda)));
       }
       await pedidas.get(tanda);
-      return urls[n];
+      return segunda && !segundaRota && urls2[n] ? urls2[n] : urls[n];
     }
     const etags = {};
     // Lo subido = trozos terminados (un total que solo suma) + lo que llevan los que están en
-    // marcha (como mucho 6): no se recorre la lista entera de trozos en cada avance
+    // marcha (como mucho 12): no se recorre la lista entera de trozos en cada avance
     let terminado = 0; const enMarcha = new Map();
     const pendientes = Array.from({ length: partes }, (_, i) => i + 1);
     let muestra = { t: performance.now(), b: 0 };
@@ -1048,20 +1053,24 @@
       }
       pintarSubLuego(x);
     };
-    async function trabajador() {
+    let roto = false; // un trozo falló del todo: los demás paran (sin reintentar)
+    async function trabajador(segunda) {
       while (pendientes.length) {
-        if (x.cancelado) throw new Error('Cancelado');
+        if (x.cancelado || roto) throw new Error('Cancelado');
         const n = pendientes.shift();
         const blob = x.file.slice((n - 1) * tamParte, Math.min(n * tamParte, x.file.size));
         for (let intento = 1; ; intento++) {
+          const porSegunda = segunda && !segundaRota && !!urls2[n];
           try {
-            etags[n] = await put(await url(n), blob, x, (b) => { enMarcha.set(n, b); avanzar(); });
+            etags[n] = await put(await url(n, segunda), blob, x, (b) => { enMarcha.set(n, b); avanzar(); });
             enMarcha.delete(n); terminado += blob.size; avanzar();
             break;
           } catch (e) {
-            if (x.cancelado) throw new Error('Cancelado');
-            enMarcha.delete(n);
-            if (e.status === 403) delete urls[n];
+            if (x.cancelado || roto) throw new Error('Cancelado');
+            enMarcha.delete(n); avanzar();
+            // La segunda dirección no funciona (conexión, CORS…): se deja y el trozo va por la primera
+            if (porSegunda && (!e.status || e.status < 500)) { segundaRota = true; intento--; continue; }
+            if (e.status === 403) { delete urls[n]; delete urls2[n]; }
             if (intento >= 5) throw e;
             await espera(1000 * 2 ** intento);
           }
@@ -1069,11 +1078,15 @@
       }
     }
     try {
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCIA, partes) }, trabajador));
+      await url(1); // la primera tanda de direcciones dice si hay segunda dirección
+      const dos = !segundaRota && Object.keys(urls2).length > 0;
+      const n = Math.min(CONCURRENCIA * (dos ? 2 : 1), partes);
+      await Promise.all(Array.from({ length: n }, (_, i) => trabajador(dos && i % 2 === 1)));
       await api('/api/panel/subir/completar', { key, uploadId, partes: Object.entries(etags).map(([n, etag]) => ({ n: Number(n), etag })) });
       x.estado = 'hecho'; x.subido = x.file.size;
       if (x.alTerminar) x.alTerminar(key);
     } catch (e) {
+      roto = true;
       x.xhrs.forEach((r) => r.abort());
       api('/api/panel/subir/cancelar', { key, uploadId }).catch(() => {});
       throw e;
