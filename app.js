@@ -697,7 +697,7 @@
         try {
           const lista = await api(`/api/panel/titulos?q=${encodeURIComponent(q.value.trim())}`);
           res.innerHTML = '';
-          if (!lista.length) res.append(el('div', 'vacio', 'No se ha encontrado nada. Prueba con otro nombre o con el enlace de IMDb o de TMDB.'));
+          if (!lista.length) res.append(el('div', 'vacio', /tt\d{5,}/.test(q.value) ? 'Ese código de IMDb no está enlazado en TMDB (pasa con algunas novelas y estrenos). Busca la serie por su nombre o pega el enlace de themoviedb.org.' : 'No se ha encontrado nada. Prueba con otro nombre o con el enlace de IMDb o de TMDB.'));
           for (const r of lista) {
             const t = el('button', 'resultado');
             if (r.poster) { const im = el('img'); im.src = r.poster; im.alt = ''; im.loading = 'lazy'; t.append(im); } else t.append(el('div', 'sin', '🎞'));
@@ -837,50 +837,98 @@
         caja.append(f);
         v.append(caja);
       } else {
+        // Las temporadas y capítulos que TMDB aún no tiene (novelas largas, series recién
+        // estrenadas) se crean al elegir sus archivos: así cabe la temporada entera
+        const temporadaDe = (n) => {
+          let t = ficha.temporadas.find((x) => x.numero === n);
+          if (!t) {
+            t = { numero: n, nombre: n === 0 ? 'Especiales' : `Temporada ${n}`, episodios: [] };
+            ficha.temporadas.push(t);
+            ficha.temporadas.sort((a, b) => (a.numero || 999) - (b.numero || 999)); // especiales al final
+          }
+          return t;
+        };
+        const capituloEn = (t, n) => {
+          let ep = t.episodios.find((x) => x.numero === n);
+          if (!ep) { ep = { numero: n, titulo: '', nuevo: true }; t.episodios.push(ep); t.episodios.sort((a, b) => a.numero - b.numero); }
+          return ep;
+        };
         // Varios archivos a la vez: cada uno a su capítulo por el número del nombre
         const repartir = (files, temporada) => {
           const sinNumero = [];
+          const tocadas = new Set();
           let colocados = 0;
           for (const file of files) {
             const c = capituloDe(file.name);
-            const t = c?.t ?? temporada;
-            const ep = t != null && c ? ficha.temporadas.find((x) => x.numero === t)?.episodios.find((x) => x.numero === c.e) : null;
-            if (ep) { asignados.set(`${t}-${ep.numero}`, file); colocados++; } else sinNumero.push(file);
+            const n = c?.t ?? temporada;
+            if (n == null || !c) { sinNumero.push(file); continue; }
+            const t = temporadaDe(n);
+            const ep = capituloEn(t, c.e);
+            asignados.set(`${n}-${ep.numero}`, file); colocados++; tocadas.add(n);
           }
           // Los que no dicen su número, en orden, en los capítulos libres de esa temporada
-          // (libres: sin archivo elegido y sin subir o subiéndose ya)
+          // (libres: sin archivo elegido y sin subir o subiéndose ya); si no hay bastantes, se
+          // añaden capítulos detrás del último
           if (temporada != null && sinNumero.length) {
-            const libres = ficha.temporadas.find((x) => x.numero === temporada).episodios.filter((e) => {
-              const k = `${temporada}-${e.numero}`; const x = enviados.get(k);
-              return !asignados.has(k) && !(x && (activo(x) || x.estado === 'hecho'));
+            const t = temporadaDe(temporada);
+            const libre = (e) => { const k = `${temporada}-${e.numero}`; const x = enviados.get(k); return !asignados.has(k) && !(x && (activo(x) || x.estado === 'hecho')); };
+            const libres = t.episodios.filter(libre);
+            sinNumero.sort((a, b) => a.name.localeCompare(b.name, 'es', { numeric: true })).forEach((file, i) => {
+              const ep = libres[i] || capituloEn(t, Math.max(0, ...t.episodios.map((e) => e.numero)) + 1);
+              asignados.set(`${temporada}-${ep.numero}`, file); colocados++;
             });
-            sinNumero.sort((a, b) => a.name.localeCompare(b.name, 'es', { numeric: true }))
-              .forEach((file, i) => { if (libres[i]) { asignados.set(`${temporada}-${libres[i].numero}`, file); colocados++; } });
+            tocadas.add(temporada);
           }
+          tocadas.forEach((n) => pintarTemporada(temporadaDe(n), true));
           filas.forEach((f) => f.pintar());
-          aviso(`${colocados} de ${files.length} archivo${files.length === 1 ? '' : 's'} colocado${files.length === 1 ? '' : 's'}${colocados < files.length ? ': elige a mano los demás' : ''}`, colocados ? 'bien' : 'mal');
+          aviso(`${colocados} de ${files.length} archivo${files.length === 1 ? '' : 's'} colocado${files.length === 1 ? '' : 's'}${colocados < files.length ? ': elige la temporada de los demás' : ' · pulsa «Subir»'}`, colocados ? 'bien' : 'mal');
         };
         const todos = el('div', 'buscador');
         const bt = el('button', 'boton', '📂 Elegir archivos de varios capítulos…');
         bt.title = 'Se colocan solos si el nombre lleva S01E02, 1x02…';
         bt.onclick = async () => { const files = await elegirArchivos(true); if (files.length) repartir(files, null); };
-        todos.append(bt, el('span', 'resumen', 'Se colocan solos si el nombre trae «S01E02» o «1x02».'));
+        // Una temporada que TMDB no tiene: se añade vacía y se llena con «Temporada completa»
+        const nuevaT = el('button', 'boton', '＋ Añadir temporada');
+        nuevaT.onclick = () => {
+          const n = Math.max(0, ...ficha.temporadas.map((t) => t.numero)) + 1;
+          const t = temporadaDe(n);
+          pintarTemporada(t, true);
+          cajas.get(n).scrollIntoView({ block: 'center', behavior: 'smooth' });
+        };
+        todos.append(bt, nuevaT, el('span', 'resumen', 'O en cada temporada, «📂 Temporada completa»: eliges todos sus archivos y se colocan en orden. Si TMDB tiene menos capítulos, se añaden los que falten.'));
         v.append(todos);
-        ficha.temporadas.forEach((t) => {
+        const cajas = new Map(); // número de temporada → su bloque
+        const huecoTemporadas = el('div');
+        v.append(huecoTemporadas);
+        // Pinta (o vuelve a pintar) el bloque de una temporada, en su sitio
+        function pintarTemporada(t, abierta) {
+          huecoTemporadas.querySelector(':scope > p')?.remove();
           const d = el('details', 'temporada');
-          d.open = true; // todas abiertas, con todos sus capítulos (se pueden plegar)
+          d.open = abierta || !cajas.has(t.numero); // todas abiertas al principio (se pueden plegar)
           const s = el('summary');
-          const bt2 = el('button', 'boton', 'Elegir archivos de esta temporada');
-          bt2.onclick = async (e) => { e.preventDefault(); const files = await elegirArchivos(true); if (files.length) { d.open = true; repartir(files, t.numero); } };
-          s.append(el('span', null, `${t.nombre} · ${t.episodios.length} capítulos`), el('span', 'hueco'), bt2);
+          const bt2 = el('button', 'boton primario', '📂 Temporada completa…');
+          bt2.title = 'Elige todos los archivos de la temporada a la vez: se colocan por el número del nombre o, si no lo trae, en orden';
+          bt2.onclick = async (e) => { e.preventDefault(); const files = await elegirArchivos(true); if (files.length) repartir(files, t.numero); };
+          const extra = t.episodios.filter((x) => x.nuevo).length;
+          s.append(el('span', null, `${t.nombre} · ${t.episodios.length} capítulos${extra ? ` (${extra} no están en TMDB)` : ''}`), el('span', 'hueco'), bt2);
           d.append(s);
+          if (!t.episodios.length) d.append(el('p', 'resumen', 'TMDB no tiene capítulos de esta temporada: pulsa «📂 Temporada completa…» y se crean con tus archivos.'));
           for (const ep of t.episodios) {
-            const f = filaArchivo(`${t.numero}-${ep.numero}`, `E${dos(ep.numero)}`, ep.titulo || `Capítulo ${ep.numero}`);
-            filas.set(`${t.numero}-${ep.numero}`, f);
+            const k = `${t.numero}-${ep.numero}`;
+            const f = filaArchivo(k, `E${dos(ep.numero)}`, ep.titulo || `Capítulo ${ep.numero}`);
+            filas.set(k, f);
             d.append(f);
           }
-          v.append(d);
-        });
+          const vieja = cajas.get(t.numero);
+          cajas.set(t.numero, d);
+          if (vieja) return vieja.replaceWith(d);
+          // En orden: antes de la primera que vaya detrás (los especiales, los últimos)
+          const orden = (n) => n || 999;
+          const despues = [...cajas.entries()].filter(([n]) => n !== t.numero && orden(n) > orden(t.numero)).sort((a, b) => orden(a[0]) - orden(b[0]))[0];
+          if (despues) despues[1].before(d); else huecoTemporadas.append(d);
+        }
+        ficha.temporadas.forEach((t) => pintarTemporada(t, true));
+        if (!ficha.temporadas.length) huecoTemporadas.append(el('p', 'resumen', 'TMDB todavía no tiene temporadas de esta serie: pulsa «＋ Añadir temporada».'));
       }
       v.append(pie);
       actualizarPie();
@@ -916,8 +964,8 @@
               const q = encolar(x.file, x.carpeta, x.nombre);
               enviados.set(x.clave, q);
               asignados.delete(x.clave);
-              const fila = filas.get(x.clave);
-              q.alPintar = () => { if (fila.isConnected) fila.pintar(); };
+              // (la fila se busca cada vez: la temporada se vuelve a pintar al añadirle capítulos)
+              q.alPintar = () => { const fila = filas.get(x.clave); if (fila && fila.isConnected) fila.pintar(); };
             }
             filas.forEach((f) => f.pintar());
           }
