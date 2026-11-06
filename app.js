@@ -125,6 +125,8 @@
     soyAdmin = yo.rol !== 'colaborador';
     document.documentElement.classList.toggle('colaborador', !soyAdmin);
     $('#usuario').textContent = (yo.nombre || yo.usuario) + (soyAdmin ? '' : ' · colaborador');
+    const inicial = String(yo.nombre || yo.usuario || '?').trim().charAt(0).toUpperCase() || '?';
+    $('#avatar').textContent = inicial; $('#avatar2').textContent = inicial;
     // Lo que un colaborador no puede usar, ni se ve
     ['#b-papelera', '#b-registro', '#b-anuncios', '#b-usdc', '#b-colaboradores', '#sel-mover', '#sel-borrar'].forEach((s) => { const b = $(s); if (b) b.hidden = !soyAdmin; });
     $('#vista-entrar').hidden = true; $('#vista-panel').hidden = false;
@@ -133,26 +135,79 @@
     resumen();
   }
 
-  // ---------- Resumen (lateral) ----------
+  // ---------- Cabecera: se oscurece al bajar y menú de la cuenta ----------
+  const barra = $('#barra');
+  const alBajar = () => barra.classList.toggle('solida', window.scrollY > 8);
+  window.addEventListener('scroll', alBajar, { passive: true }); alBajar();
+  $('#ir-inicio').onclick = (e) => { e.preventDefault(); irA(''); };
+  const menu = $('#menu-perfil');
+  const abrirMenu = (si) => { menu.hidden = !si; $('#perfil').setAttribute('aria-expanded', String(si)); };
+  $('#perfil').onclick = (e) => { e.stopPropagation(); abrirMenu(menu.hidden); };
+  menu.addEventListener('click', (e) => { if (e.target.closest('button')) abrirMenu(false); });
+  document.addEventListener('click', (e) => { if (!menu.hidden && !e.target.closest('.perfil')) abrirMenu(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !menu.hidden) abrirMenu(false); });
+
+  // ---------- Resumen (secciones de la cabecera) ----------
+  let total = null; // tamaño y archivos de todo e2
   async function resumen() {
     try {
       const d = await api('/api/panel/resumen');
       secciones = d.secciones;
+      total = d;
       const nav = $('#secciones');
       nav.innerHTML = '';
       const raiz = el('a', actual === '' ? 'activa' : '');
-      raiz.append(el('span', null, '🗂 Todo e2'), el('small', null, tam(d.tamano)));
+      raiz.append(el('span', null, 'Inicio'));
+      raiz.title = `Todo e2 · ${tam(d.tamano)}`;
       raiz.onclick = () => irA('');
       nav.append(raiz);
       for (const s of d.secciones) {
         const a = el('a', actual.startsWith(s.prefijo) ? 'activa' : '');
-        a.append(el('span', null, s.nombre), el('small', null, s.archivos ? `${s.archivos} · ${tam(s.tamano)}` : 'vacía'));
+        a.append(el('span', null, s.nombre));
+        a.title = s.archivos ? `${s.archivos} archivos · ${tam(s.tamano)}` : 'Vacía';
         a.onclick = () => irA(s.prefijo);
         nav.append(a);
       }
       $('#uso').innerHTML = '';
       $('#uso').append(el('b', null, tam(d.tamano)), el('span', null, `${d.archivos} archivos en ${d.secciones.length} secciones`));
+      if (!actual && listado.prefijo === '') pintarTabla();
     } catch {}
+  }
+
+  // ---------- Cartel (la cabecera grande de cada carpeta) ----------
+  // Un color propio para cada nombre, para que las carpetas se distingan como carteles
+  // (el ángulo áureo separa bien nombres casi iguales, como «Temporada 1» y «Temporada 2»)
+  const tono = (txt) => { let h = 7; for (const c of String(txt)) h = (h * 31 + c.codePointAt(0)) % 3600; return Math.round(h * 137.508) % 360; };
+  const partir = (nombre) => { const m = /^(.*?)\s*[-–(]\s*((?:19|20)\d\d)\)?\s*$/.exec(nombre); return m ? { titulo: m[1], anio: m[2] } : { titulo: nombre, anio: '' }; };
+  function tipoDe(prefijo, carpetas) {
+    if (!prefijo) return 'Gestor';
+    const nombre = nombreDe(prefijo);
+    if (!padreDe(prefijo)) return 'Sección';
+    if (/^temporada\s*\d+/i.test(nombre)) return 'Temporada';
+    if (carpetas?.some((c) => /^temporada\s*\d+/i.test(c.nombre))) return 'Serie';
+    return 'Carpeta';
+  }
+  function pintarCartel(cargado) {
+    const nombre = actual ? nombreDe(actual) : 'Todo e2';
+    const { titulo, anio } = partir(nombre);
+    $('#cartel').style.setProperty('--h', tono(nombre));
+    $('#cartel-titulo').textContent = titulo;
+    $('#cartel-sello').lastChild.textContent = tipoDe(actual, cargado ? listado.carpetas : null);
+    const meta = $('#cartel-meta');
+    meta.innerHTML = '';
+    const dato = (txt, clase) => meta.append(el('span', clase, txt));
+    if (anio) dato(anio, 'anio');
+    if (!actual) {
+      if (total) { dato(`${total.secciones.length} secciones`); dato(`${total.archivos} archivos`); dato(tam(total.tamano), 'calidad'); }
+    } else if (cargado) {
+      const { carpetas, archivos } = listado;
+      const peso = archivos.reduce((s, a) => s + (a.tamano || 0), 0);
+      const videos = archivos.filter((a) => VIDEO.test(a.nombre)).length;
+      if (carpetas.length) dato(`${carpetas.length} carpeta${carpetas.length === 1 ? '' : 's'}`);
+      if (archivos.length) dato(videos ? `${videos} vídeo${videos === 1 ? '' : 's'}` : `${archivos.length} archivo${archivos.length === 1 ? '' : 's'}`);
+      if (peso) dato(tam(peso), 'calidad');
+      if (!carpetas.length && !archivos.length) dato('Vacía');
+    }
   }
 
   // ---------- Explorador ----------
@@ -191,39 +246,58 @@
       m.append(a);
     });
     $('#soltar-dest').textContent = actual || 'e2 (elige antes una sección)';
+    pintarCartel();
   }
   function pintarTabla() {
     const t = $('#tabla');
     t.innerHTML = '';
-    const cab = el('div', 'fila cab');
-    const todas = el('input'); todas.type = 'checkbox'; todas.title = 'Seleccionar todo';
-    todas.onchange = () => { [...listado.carpetas.map((c) => c.prefijo), ...listado.archivos.map((a) => a.key)].forEach((k) => (todas.checked ? marcadas.add(k) : marcadas.delete(k))); pintarTabla(); };
-    cab.append(todas, el('span', null, 'Nombre'), el('span', 'num', 'Tamaño'), el('span', 'num', 'Modificado'), el('span'));
-    t.append(cab);
-    if (!listado.carpetas.length && !listado.archivos.length) {
+    pintarCartel(true);
+    const { carpetas, archivos } = listado;
+    if (!carpetas.length && !archivos.length) {
       const v = el('div', 'vacio');
-      v.append(el('b', null, 'Carpeta vacía'), el('span', null, actual ? 'Arrastra aquí vídeos o usa «Subir archivos».' : 'Crea una sección con «Nueva carpeta».'));
+      v.append(el('span', 'vacio-ico', '🎞'), el('b', null, 'Aquí todavía no hay nada'), el('span', null, actual ? 'Arrastra aquí vídeos o usa «Subir archivos».' : 'No hay secciones en e2.'));
       t.append(v);
+      pintarSeleccion();
+      return;
     }
-    for (const c of listado.carpetas) t.append(fila(c.prefijo, c.nombre, true));
-    for (const a of listado.archivos) t.append(fila(a.key, a.nombre, false, a));
-    todas.checked = marcadas.size > 0 && marcadas.size === listado.carpetas.length + listado.archivos.length;
+    // Seleccionar todo
+    const cab = el('div', 'cab-lista');
+    const lt = el('label', 'todo');
+    const todas = el('input'); todas.type = 'checkbox';
+    todas.onchange = () => { [...carpetas.map((c) => c.prefijo), ...archivos.map((a) => a.key)].forEach((k) => (todas.checked ? marcadas.add(k) : marcadas.delete(k))); pintarTabla(); };
+    todas.checked = marcadas.size > 0 && marcadas.size === carpetas.length + archivos.length;
+    lt.append(todas, el('span', null, 'Seleccionar todo'));
+    cab.append(lt);
+    t.append(cab);
+    // Carpetas: una fila de carteles
+    if (carpetas.length) {
+      const h = el('h2', 'fila-titulo', actual ? (tipoDe(actual, carpetas) === 'Serie' ? 'Temporadas' : 'Carpetas') : 'Secciones');
+      h.append(el('small', null, String(carpetas.length)));
+      const g = el('div', 'rejilla');
+      for (const c of carpetas) g.append(tarjeta(c.prefijo, c.nombre));
+      t.append(h, g);
+    }
+    // Archivos: lista al estilo de los episodios
+    if (archivos.length) {
+      const h = el('h2', 'fila-titulo', archivos.every((a) => VIDEO.test(a.nombre)) ? 'Vídeos' : 'Archivos');
+      h.append(el('small', null, String(archivos.length)));
+      const l = el('div', 'lista-archivos');
+      archivos.forEach((a, i) => l.append(fila(a.key, a.nombre, a, i + 1)));
+      t.append(h, l);
+    }
     pintarSeleccion();
   }
-  function fila(key, nombre, esCarpeta, a) {
-    const f = el('div', `fila${marcadas.has(key) ? ' marcada' : ''}`);
-    const ch = el('input'); ch.type = 'checkbox'; ch.checked = marcadas.has(key);
-    ch.onchange = () => { ch.checked ? marcadas.add(key) : marcadas.delete(key); f.classList.toggle('marcada', ch.checked); pintarSeleccion(); };
-    const n = el('div', 'nombre');
-    n.append(el('span', 'ico', esCarpeta ? '📁' : icono(nombre)));
-    const txt = el(esCarpeta ? 'a' : 'span', 'txt', nombre);
-    txt.title = nombre;
-    if (esCarpeta) txt.onclick = () => irA(key);
-    n.append(txt);
-    const acc = el('div', 'acciones-fila');
-    const accion = (ico, titulo, fn) => { const b = el('button', null, ico); b.title = titulo; b.onclick = fn; acc.append(b); };
+  function casilla(key, caja) {
+    const ch = el('input'); ch.type = 'checkbox'; ch.checked = marcadas.has(key); ch.className = 'marcar';
+    ch.setAttribute('aria-label', `Seleccionar ${nombreDe(key)}`);
+    ch.onchange = () => { ch.checked ? marcadas.add(key) : marcadas.delete(key); caja.classList.toggle('marcada', ch.checked); pintarSeleccion(); };
+    return ch;
+  }
+  function botonesDe(key, esCarpeta, clase) {
+    const acc = el('div', clase);
+    const accion = (ico, titulo, fn, extra) => { const b = el('button', extra || null, ico); b.type = 'button'; b.title = titulo; b.setAttribute('aria-label', titulo); b.onclick = (e) => { e.stopPropagation(); fn(); }; acc.append(b); };
     if (!esCarpeta) {
-      accion('▶', 'Ver o escuchar', () => abrirEnlace(key, false));
+      accion('▶', 'Ver o escuchar', () => abrirEnlace(key, false), 'ver');
       accion('⬇', 'Descargar', () => abrirEnlace(key, true));
     }
     if (soyAdmin) {
@@ -231,13 +305,40 @@
       accion('↗', 'Mover a otra carpeta', () => mover([key]));
       accion('🗑', 'Borrar', () => borrar([key]));
     }
-    f.append(ch, n, el('span', 'num tam', esCarpeta ? '' : tam(a.tamano)), el('span', 'num', esCarpeta ? '' : fecha(a.fecha)), acc);
+    return acc;
+  }
+  function tarjeta(key, nombre) {
+    const f = el('div', `tarjeta${marcadas.has(key) ? ' marcada' : ''}`);
+    f.style.setProperty('--h', tono(nombre));
+    const { titulo, anio } = partir(nombre);
+    const abrir = el('button', 'portada'); abrir.type = 'button'; abrir.title = nombre;
+    abrir.onclick = () => irA(key);
+    abrir.append(el('span', 'letra', titulo.charAt(0).toUpperCase()), el('b', null, titulo));
+    const info = el('small');
+    if (anio) info.append(el('span', 'anio', anio));
+    const s = !actual && secciones.find((x) => x.prefijo === key);
+    if (s) info.append(el('span', null, s.archivos ? `${s.archivos} archivos · ${tam(s.tamano)}` : 'Vacía'));
+    if (info.childNodes.length) abrir.append(info);
+    f.append(abrir, casilla(key, f), botonesDe(key, true, 'acciones-tarjeta'));
+    return f;
+  }
+  function fila(key, nombre, a, n) {
+    const f = el('div', `fila${marcadas.has(key) ? ' marcada' : ''}`);
+    const nom = el('div', 'nombre');
+    const txt = el('span', 'txt', nombre); txt.title = nombre;
+    const sub = el('small', null, [tam(a.tamano), fecha(a.fecha)].filter(Boolean).join(' · '));
+    nom.append(txt, sub);
+    const ico = el(VIDEO.test(nombre) ? 'button' : 'span', 'ico', VIDEO.test(nombre) ? '▶' : icono(nombre));
+    if (VIDEO.test(nombre)) { ico.type = 'button'; ico.title = 'Ver'; ico.onclick = () => abrirEnlace(key, false); }
+    f.append(casilla(key, f), el('span', 'n', String(n)), ico, nom, el('span', 'num tam', tam(a.tamano)), el('span', 'num', fecha(a.fecha)), botonesDe(key, false, 'acciones-fila'));
     return f;
   }
   function pintarSeleccion() {
     $('#seleccion').hidden = !marcadas.size;
+    $('#tabla').classList.toggle('eligiendo', marcadas.size > 0);
     $('#sel-n').textContent = `${marcadas.size} seleccionado${marcadas.size === 1 ? '' : 's'}`;
   }
+  $('#sel-quitar').onclick = () => { marcadas.clear(); pintarTabla(); };
   $('#sel-borrar').onclick = () => borrar([...marcadas]);
   $('#sel-mover').onclick = () => mover([...marcadas]);
   $('#b-actualizar').onclick = () => { cargar(); resumen(); };
