@@ -683,9 +683,9 @@
     // --- Buscar ---
     function pintarBusqueda(texto = '') {
       v.innerHTML = '';
-      v.append(el('h2', null, '🎬 Añadir película o serie'), el('p', null, 'Busca por nombre o pega el enlace o el código de IMDb (tt…). Después eliges la carpeta y el archivo de cada capítulo: se suben con su nombre bien puesto.'));
+      v.append(el('h2', null, '🎬 Añadir película o serie'), el('p', null, 'Busca por nombre, o pega el enlace o el código de IMDb (tt…) o de TMDB (themoviedb.org/movie/… o /tv/…, o solo su número). Después eliges la carpeta y el archivo de cada capítulo: se suben con su nombre bien puesto.'));
       const fila = el('div', 'buscador');
-      const q = el('input'); q.placeholder = 'Nombre, https://www.imdb.com/title/tt… o tt…'; q.value = texto;
+      const q = el('input'); q.placeholder = 'Nombre, enlace de IMDb o TMDB, tt… o número de TMDB'; q.value = texto;
       const b = el('button', 'boton primario', 'Buscar');
       fila.append(q, b);
       const res = el('div', 'resultados');
@@ -697,7 +697,7 @@
         try {
           const lista = await api(`/api/panel/titulos?q=${encodeURIComponent(q.value.trim())}`);
           res.innerHTML = '';
-          if (!lista.length) res.append(el('div', 'vacio', 'No se ha encontrado nada. Prueba con otro nombre o con el código de IMDb.'));
+          if (!lista.length) res.append(el('div', 'vacio', 'No se ha encontrado nada. Prueba con otro nombre o con el enlace de IMDb o de TMDB.'));
           for (const r of lista) {
             const t = el('button', 'resultado');
             if (r.poster) { const im = el('img'); im.src = r.poster; im.alt = ''; im.loading = 'lazy'; t.append(im); } else t.append(el('div', 'sin', '🎞'));
@@ -739,6 +739,7 @@
       txt.append(meta);
       if (ficha.sinopsis) txt.append(el('p', 'sinopsis', ficha.sinopsis));
       if (ficha.imdb) { const a = el('a', null, `IMDb ${ficha.imdb} ↗`); a.href = `https://www.imdb.com/title/${ficha.imdb}/`; a.target = '_blank'; a.rel = 'noopener'; txt.append(a); }
+      { const a = el('a', null, `TMDB ${ficha.tmdbId} ↗`); a.href = `https://www.themoviedb.org/${serie ? 'tv' : 'movie'}/${ficha.tmdbId}`; a.target = '_blank'; a.rel = 'noopener'; if (ficha.imdb) txt.append(' · '); txt.append(a); }
       cab.append(txt);
       v.append(cab);
 
