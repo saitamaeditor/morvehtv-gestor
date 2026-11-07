@@ -613,7 +613,9 @@
       radio('pelicula', '🎬 Película o documental'); const rSerie = radio('serie', '📺 Serie o novela');
       const solo = el('label', 'check'); const cSolo = el('input'); cSolo.type = 'checkbox'; cSolo.checked = f.ficha === false;
       solo.append(cSolo, document.createTextNode(' Mantener la ficha de TMDB y solo poner los capítulos'));
-      v.append(el('small', null, 'Tipo:'), tipos, solo);
+      const inter = el('label', 'check'); const cInter = el('input'); cInter.type = 'checkbox'; cInter.checked = f.numeracion === 'internacional';
+      inter.append(cInter, document.createTextNode(' 📼 Versión internacional (otra numeración: no usar los capítulos de TMDB)'));
+      v.append(el('small', null, 'Tipo:'), tipos, solo, inter);
 
       const titulo = entrada(f.titulo, 'Título que se verá');
       const anio = entrada(f.anio, '2026'); anio.inputMode = 'numeric'; anio.maxLength = 4;
@@ -689,7 +691,7 @@
       anunciar.append(cAnun, document.createTextNode(` 📣 Anunciarla en Telegram al guardar${f.anunciar ? ' (ya se anunció; márcalo para repetir el aviso)' : ''}`));
 
       v.append(datosF, imagenes, bloqueCaps, anunciar);
-      const actualizar = () => { const serie = rSerie.checked; bloqueCaps.hidden = !serie; solo.hidden = !serie; const s = serie && cSolo.checked; datosF.hidden = s; imagenes.hidden = s; };
+      const actualizar = () => { const serie = rSerie.checked; bloqueCaps.hidden = !serie; solo.hidden = !serie; inter.hidden = !serie; const s = serie && cSolo.checked; datosF.hidden = s; imagenes.hidden = s; };
       tipos.addEventListener('change', actualizar); cSolo.onchange = actualizar; actualizar();
 
       const pie = el('div', 'botones');
@@ -702,6 +704,7 @@
           ficha: serie && cSolo.checked ? false : undefined, titulo: titulo.value, anio: anio.value, duracion: duracion.value, sinopsis: sinopsis.value,
           generos: generos.value, direccion: direccion.value, reparto: reparto.value, web: web.value, fuente: fuente.value,
           poster: valor.poster, fondo: valor.fondo, temporadas: serie ? textoACapitulos(caps.value) : {}, anunciar: cAnun.checked,
+          numeracion: serie && cInter.checked ? 'internacional' : undefined,
         };
         if (!ficha.archivos.length) return aviso('Escribe para qué vídeo o serie es', 'mal');
         if (!ficha.titulo.trim() && ficha.ficha !== false) return aviso('Escribe el título', 'mal');
@@ -1240,6 +1243,7 @@
           if (!(n >= 1 && n <= 2000)) return aviso('Escribe un número de capítulos entre 1 y 2000', 'mal');
           asignados.clear();
           ficha.temporadas = [{ numero: 1, nombre: 'Temporada 1', episodios: Array.from({ length: n }, (_, i) => ({ numero: i + 1, titulo: '' })) }];
+          ficha.internacional = true; // el visor no usará los capítulos de la base de datos
           cajas.forEach((d) => d.remove()); cajas.clear(); filas.clear();
           huecoTemporadas.innerHTML = '';
           pintarTemporada(ficha.temporadas[0], true);
@@ -1301,7 +1305,7 @@
             }
             const carpetas = [`${seccion}${base}/`, ...new Set(trabajos.map((x) => x.carpeta))];
             await api('/api/panel/carpeta', { carpetas });
-            if (!enviados.size) await api('/api/panel/vincular', { clave: `${seccion}${base}/`, tmdbId: ficha.tmdbId, tipo: 'serie', fuente: ficha.fuente, id: ficha.id }).catch(() => {});
+            if (!enviados.size) await api('/api/panel/vincular', { clave: `${seccion}${base}/`, tmdbId: ficha.tmdbId, tipo: 'serie', fuente: ficha.fuente, id: ficha.id, internacional: !!ficha.internacional }).catch(() => {});
             trabajos.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { numeric: true }));
           }
           if (!serie) {
