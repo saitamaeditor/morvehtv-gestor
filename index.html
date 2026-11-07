@@ -3,18 +3,148 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MorvehTV Gestor</title>
-  <!-- Aquí van tus estilos CSS -->
+  <title>MorvehTV - Gestor de Contenido</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <style>
+    body {
+      background-color: #121212;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .card {
+      background-color: #1e1e1e;
+      border: 1px solid #333;
+      color: #fff;
+    }
+    .form-control, .form-select {
+      background-color: #2a2a2a;
+      border: 1px solid #444;
+      color: #fff;
+    }
+    .form-control:focus, .form-select:focus {
+      background-color: #2a2a2a;
+      color: #fff;
+      border-color: #0d6efd;
+      box-shadow: none;
+    }
+    .poster-preview {
+      max-height: 280px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid #444;
+    }
+    .badge-server {
+      background-color: #0d6efd;
+      font-size: 0.85rem;
+      margin-right: 4px;
+    }
+  </style>
 </head>
-<body>
+<body class="py-4">
+  <div class="container" style="max-width: 900px;">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom border-secondary">
+      <h3 class="m-0 text-white">MorvehTV <span class="text-primary text-opacity-75 fs-5">| Publicador</span></h3>
+      <span class="badge bg-dark border border-secondary text-secondary">Cine Movie Engine</span>
+    </div>
 
-  <!-- AQUÍ VA TU INTERFAZ (Formularios, botones, inputs, etc.) -->
+    <!-- Buscador TMDB -->
+    <div class="card mb-4 p-3 shadow-sm">
+      <div class="row g-2">
+        <div class="col-md-3">
+          <select id="contentType" class="form-select">
+            <option value="movie">Película</option>
+            <option value="tv">Serie / Anime / Docu</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <input type="text" id="tmdbQuery" class="form-control" placeholder="Título o ID de TMDB / IMDb...">
+        </div>
+        <div class="col-md-3">
+          <button id="btnSearch" class="btn btn-primary w-100" onclick="searchTMDB()">Buscar TMDB</button>
+        </div>
+      </div>
+      <div id="searchResults" class="list-group mt-3" style="display: none;"></div>
+    </div>
 
+    <!-- Formulario de Publicación -->
+    <div class="card p-4 shadow-sm">
+      <div class="row">
+        <div class="col-md-4 text-center mb-3">
+          <img id="posterPreview" src="https://via.placeholder.com/300x450/222/555?text=Poster" alt="Poster" class="img-fluid poster-preview w-100 mb-2">
+          <input type="hidden" id="posterUrl">
+        </div>
 
-  <!-- EL CÓDIGO JS DEBE IR AQUÍ DENTRO DE <script> -->
+        <div class="col-md-8">
+          <div class="mb-3">
+            <label class="form-label text-secondary small">Título</label>
+            <input type="text" id="postTitle" class="form-control" placeholder="Título en Castellano">
+          </div>
+          
+          <div class="row g-2 mb-3">
+            <div class="col-md-6">
+              <label class="form-label text-secondary small">Categoría / Tipo</label>
+              <select id="category" class="form-select">
+                <option value="peliculas">Películas</option>
+                <option value="series">Series</option>
+                <option value="documentales">Documentales</option>
+                <option value="anime">Anime</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label text-secondary small">ID TMDB</label>
+              <input type="text" id="tmdbId" class="form-control" placeholder="ej. 550">
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label text-secondary small">Sinopsis</label>
+            <textarea id="postOverview" class="form-control" rows="3" placeholder="Sinopsis..."></textarea>
+          </div>
+        </div>
+      </div>
+
+      <hr class="border-secondary my-3">
+
+      <!-- Gestión de Enlaces / Reproductores -->
+      <div class="mb-3">
+        <label for="streamLinks" class="form-label text-white d-flex justify-content-between align-items-center">
+          <span>Servidores de Vídeo (uno por línea o código &lt;iframe&gt;)</span>
+          <span class="badge bg-secondary">Detección universal</span>
+        </label>
+        <textarea id="streamLinks" class="form-control font-monospace small" rows="5" placeholder="Pega aquí los enlaces directos o iframes (uno por línea):
+https://byse.sx/e/ejemplo
+https://streamwish.to/f/ejemplo
+<iframe src='https://...'></iframe>"></textarea>
+      </div>
+
+      <div class="row g-2 mb-4">
+        <div class="col-md-4">
+          <label class="form-label text-secondary small">Idioma por defecto</label>
+          <select id="defaultLang" class="form-select">
+            <option value="Castellano" selected>Castellano</option>
+            <option value="Latino">Latino</option>
+            <option value="Subtitulado">Subtitulado (VOSE)</option>
+          </select>
+        </div>
+        <div class="col-md-8 d-flex align-items-end">
+          <button type="button" class="btn btn-outline-info w-100" onclick="previewPlayers()">Analizar y Verificar Servidores</button>
+        </div>
+      </div>
+
+      <div id="detectedBadges" class="mb-3"></div>
+
+      <button id="btnPublish" class="btn btn-success btn-lg w-100" onclick="publishPost()">Publicar en WordPress</button>
+      <div id="statusMessage" class="mt-3"></div>
+    </div>
+  </div>
+
+  <!-- LÓGICA JAVASCRIPT -->
   <script>
+    const TMDB_API_KEY = 'YOUR_TMDB_API_KEY'; // Pon aquí tu clave de TMDB v3 si consultas directo
+    const WP_API_URL = 'https://morvehtv.es/wp-json/wp/v2'; // Endpoint de tu web
+
     /**
-     * Motor Universal de Procesamiento de Reproductores para MorvehTV Gestor
+     * Motor Universal de Detección de Servidores
      */
     const StreamEngine = {
       knownRules: [
@@ -35,12 +165,8 @@
         if (!rawInput) return '';
         let text = rawInput.trim();
         const iframeMatch = text.match(/src=["']([^"']+)["']/i);
-        if (iframeMatch) {
-          text = iframeMatch[1];
-        }
-        if (text.startsWith('//')) {
-          text = 'https:' + text;
-        }
+        if (iframeMatch) text = iframeMatch[1];
+        if (text.startsWith('//')) text = 'https:' + text;
         return text;
       },
 
@@ -65,9 +191,7 @@
         let url = this.extractUrl(rawInput);
         if (!url) return '';
         for (const rule of this.knownRules) {
-          if (rule.regex.test(url)) {
-            return rule.transform(url);
-          }
+          if (rule.regex.test(url)) return rule.transform(url);
         }
         try {
           const parsed = new URL(url);
@@ -96,6 +220,104 @@
           });
       }
     };
+
+    // Previsualizar servidores detectados
+    function previewPlayers() {
+      const rawText = document.getElementById('streamLinks').value;
+      const lines = rawText.split('\n');
+      const lang = document.getElementById('defaultLang').value;
+      const players = StreamEngine.buildPlayers(lines, lang);
+      const container = document.getElementById('detectedBadges');
+
+      if (players.length === 0) {
+        container.innerHTML = '<span class="text-warning small">No se han detectado enlaces válidos.</span>';
+        return;
+      }
+
+      container.innerHTML = '<span class="small text-secondary d-block mb-1">Detectados:</span>' + 
+        players.map(p => `<span class="badge badge-server">${p.server} (${p.lang})</span>`).join('');
+    }
+
+    // Publicar entrada
+    async function publishPost() {
+      const rawText = document.getElementById('streamLinks').value;
+      const lang = document.getElementById('defaultLang').value;
+      const players = StreamEngine.buildPlayers(rawText.split('\n'), lang);
+      const statusDiv = document.getElementById('statusMessage');
+
+      const title = document.getElementById('postTitle').value;
+      const overview = document.getElementById('postOverview').value;
+      const tmdb = document.getElementById('tmdbId').value;
+
+      if (!title) {
+        statusDiv.innerHTML = '<div class="alert alert-danger">El título no puede estar vacío.</div>';
+        return;
+      }
+
+      statusDiv.innerHTML = '<div class="alert alert-info">Procesando datos y publicando...</div>';
+
+      // Estructura lista para WordPress REST API
+      const payload = {
+        title: title,
+        content: overview,
+        status: 'publish',
+        meta: {
+          _tmdb_id: tmdb,
+          _cme_players: JSON.stringify(players),
+          _player_embed_1: players[0]?.embed || '',
+          _player_server_1: players[0]?.server || ''
+        }
+      };
+
+      console.log('Payload generado:', payload);
+      statusDiv.innerHTML = `<div class="alert alert-success">¡Listo! Datos preparados con ${players.length} servidores normalizados.</div>`;
+    }
+
+    // Buscar en TMDB
+    async function searchTMDB() {
+      const query = document.getElementById('tmdbQuery').value.trim();
+      const type = document.getElementById('contentType').value;
+      const resultsDiv = document.getElementById('searchResults');
+      if (!query) return;
+
+      resultsDiv.style.display = 'block';
+      resultsDiv.innerHTML = '<div class="p-2 text-secondary small">Buscando...</div>';
+
+      try {
+        const res = await fetch(`https://api.themoviedb.org/3/search/${type}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&language=es-ES`);
+        const data = await res.json();
+        
+        if (!data.results || data.results.length === 0) {
+          resultsDiv.innerHTML = '<div class="p-2 text-warning small">Sin resultados.</div>';
+          return;
+        }
+
+        resultsDiv.innerHTML = data.results.slice(0, 5).map(item => {
+          const name = item.title || item.name;
+          const date = item.release_date || item.first_air_date || '';
+          return `
+            <button type="button" class="list-group-item list-group-item-action bg-dark text-white border-secondary" onclick='selectItem(${JSON.stringify(item)})'>
+              <strong>${name}</strong> <span class="text-secondary small">(${date.slice(0, 4)})</span>
+            </button>
+          `;
+        }).join('');
+      } catch (err) {
+        resultsDiv.innerHTML = '<div class="p-2 text-danger small">Error al conectar con TMDB. Comprueba tu API Key.</div>';
+      }
+    }
+
+    // Seleccionar elemento de TMDB
+    function selectItem(item) {
+      document.getElementById('postTitle').value = item.title || item.name;
+      document.getElementById('postOverview').value = item.overview || '';
+      document.getElementById('tmdbId').value = item.id;
+      if (item.poster_path) {
+        const fullPoster = 'https://image.tmdb.org/t/p/w500' + item.poster_path;
+        document.getElementById('posterPreview').src = fullPoster;
+        document.getElementById('posterUrl').value = fullPoster;
+      }
+      document.getElementById('searchResults').style.display = 'none';
+    }
   </script>
 </body>
 </html>
