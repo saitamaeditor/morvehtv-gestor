@@ -660,7 +660,30 @@
       const caps = area(capitulosATexto(f.temporadas), 8, 'Temporada 1\n1 | Título del capítulo | Resumen del capítulo\n2 | Título | Resumen\n\nTemporada 2\n1 | …');
       caps.classList.add('mono');
       const bloqueCaps = el('div', 'colab-form');
-      bloqueCaps.append(campo('Capítulos', caps, 'Una línea por capítulo: «número | título | resumen» (el título y el resumen son opcionales). «Temporada N» en una línea cambia de temporada. Los capítulos que no pongas salen como «Episodio N».'));
+      // Escribe sola la lista con los capítulos que ya están subidos (y lo que ya se sepa de ellos)
+      const detectar = el('button', 'boton', '🔍 Rellenar con los capítulos subidos'); detectar.type = 'button';
+      const avisoCaps = el('small', 'resumen');
+      detectar.onclick = async () => {
+        if (!para.value.trim()) { aviso('Escribe primero en «Para» el nombre de la carpeta de la serie', 'mal'); return para.focus(); }
+        detectar.disabled = true; detectar.textContent = 'Buscando capítulos…';
+        try {
+          const d = await api(`/api/panel/fichas/detectar?nombre=${encodeURIComponent(para.value.split(',')[0].trim())}`);
+          // Lo que ya estuviera escrito a mano se respeta; lo demás, de lo detectado
+          const escritos = textoACapitulos(caps.value);
+          for (const [t, eps] of Object.entries(d.temporadas)) {
+            for (const e of eps) {
+              const mio = (escritos[t] || []).find((x) => x.numero === e.numero);
+              if (mio) { mio.titulo = mio.titulo || e.titulo; mio.sinopsis = mio.sinopsis || e.sinopsis; } else (escritos[t] = escritos[t] || []).push(e);
+            }
+            escritos[t].sort((a, b) => a.numero - b.numero);
+          }
+          caps.value = capitulosATexto(escritos);
+          if (para.value.trim() !== d.nombre) para.value = d.nombre;
+          avisoCaps.textContent = `✓ ${d.total} capítulos en ${d.carpeta}${d.faltan.length ? ` · Faltan por subir: ${d.faltan.slice(0, 15).join(', ')}${d.faltan.length > 15 ? '…' : ''}` : ''}. Revisa y pulsa «Guardar ficha».`;
+        } catch (e) { aviso(e.message, 'mal'); }
+        detectar.disabled = false; detectar.textContent = '🔍 Rellenar con los capítulos subidos';
+      };
+      bloqueCaps.append(detectar, avisoCaps, campo('Capítulos', caps, 'Una línea por capítulo: «número | título | resumen» (el título y el resumen son opcionales). «Temporada N» en una línea cambia de temporada. Los capítulos que no pongas salen como «Episodio N».'));
 
       const anunciar = el('label', 'check'); const cAnun = el('input'); cAnun.type = 'checkbox';
       anunciar.append(cAnun, document.createTextNode(` 📣 Anunciarla en Telegram al guardar${f.anunciar ? ' (ya se anunció; márcalo para repetir el aviso)' : ''}`));
