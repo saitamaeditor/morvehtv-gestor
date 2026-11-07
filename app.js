@@ -1216,7 +1216,7 @@
           filas.forEach((f) => f.pintar());
           aviso(`${colocados} de ${files.length} archivo${files.length === 1 ? '' : 's'} colocado${files.length === 1 ? '' : 's'}${colocados < files.length ? ': elige la temporada de los demás' : ' · pulsa «Subir»'}`, colocados ? 'bien' : 'mal');
         };
-        const todos = el('div', 'buscador');
+        const todos = el('div', 'acciones-temporadas');
         const bt = el('button', 'boton', '📂 Elegir archivos de varios capítulos…');
         bt.title = 'Se colocan solos si el nombre lleva S01E02, 1x02…';
         bt.onclick = async () => { const files = await elegirArchivos(true); if (files.length) repartir(files, null); };
@@ -1228,7 +1228,25 @@
           pintarTemporada(t, true);
           cajas.get(n).scrollIntoView({ block: 'center', behavior: 'smooth' });
         };
-        todos.append(bt, nuevaT, el('span', 'resumen', `O en cada temporada, «📂 Temporada completa»: eliges todos sus archivos y se colocan en orden. Si ${origen} tiene menos capítulos, se añaden los que falten.`));
+        // Versión internacional (novelas dobladas): una sola temporada con los capítulos seguidos,
+        // tantos como tenga esa versión (p. ej. 164), sin los nombres de la versión original
+        const internacional = el('button', 'boton', '📼 Versión internacional (todo en una temporada)');
+        internacional.title = 'Para novelas dobladas con otra numeración: Temporada 1 con todos los capítulos seguidos';
+        internacional.onclick = async () => {
+          const total = ficha.temporadas.filter((t) => t.numero > 0).reduce((s, t) => s + t.episodios.length, 0);
+          const r = await pedirTexto('📼 Versión internacional', `Se crea una sola «Temporada 1» con los capítulos numerados seguidos (1, 2, 3…), como en la emisión internacional. ${origen} tiene ${total} capítulos en ${ficha.temporadas.filter((t) => t.numero > 0).length} temporadas; ¿cuántos tiene la versión que vas a subir?`, String(Math.max(total, 1)), 'Crear temporada');
+          const n = Math.floor(Number(String(r ?? '').replace(/\D/g, '')));
+          if (!r) return;
+          if (!(n >= 1 && n <= 2000)) return aviso('Escribe un número de capítulos entre 1 y 2000', 'mal');
+          asignados.clear();
+          ficha.temporadas = [{ numero: 1, nombre: 'Temporada 1', episodios: Array.from({ length: n }, (_, i) => ({ numero: i + 1, titulo: '' })) }];
+          cajas.forEach((d) => d.remove()); cajas.clear(); filas.clear();
+          huecoTemporadas.innerHTML = '';
+          pintarTemporada(ficha.temporadas[0], true);
+          actualizarPie();
+          aviso(`Temporada 1 con ${n} capítulos: pulsa «📂 Temporada completa…» y elige los archivos`, 'bien');
+        };
+        todos.append(bt, nuevaT, internacional, el('span', 'resumen', `O en cada temporada, «📂 Temporada completa»: eliges todos sus archivos y se colocan en orden. Si ${origen} tiene menos capítulos, se añaden los que falten.`));
         v.append(todos);
         const cajas = new Map(); // número de temporada → su bloque
         const huecoTemporadas = el('div');
