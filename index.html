@@ -1,98 +1,101 @@
-/**
- * Motor Universal de Procesamiento de Reproductores para MorvehTV Gestor
- * Soporta cualquier servidor de streaming, embed, iframe o stream directo.
- */
-const StreamEngine = {
-  // Lista de excepciones y transformaciones específicas conocidas
-  knownRules: [
-    { regex: /byse\.[a-z]+/i, name: 'Byse', transform: u => u.replace(/\/(v|d|f)\//, '/e/') },
-    { regex: /(streamwish|wishfast|swish)\.[a-z]+/i, name: 'Streamwish', transform: u => u.replace(/\/f\//, '/e/') },
-    { regex: /voe\.[a-z]+/i, name: 'Voe', transform: u => u.replace(/\/v\//, '/e/') },
-    { regex: /(filelions|lionplayer)\.[a-z]+/i, name: 'Filelions', transform: u => u.replace(/\/d\//, '/v/') },
-    { regex: /dood(stream)?\.[a-z]+/i, name: 'Doodstream', transform: u => u.replace(/\/d\//, '/e/') },
-    { regex: /vidmoly\.[a-z]+/i, name: 'Vidmoly', transform: u => u.replace(/\/w\//, '/embed-') },
-    { regex: /streamtape\.[a-z]+/i, name: 'Streamtape', transform: u => u.replace(/\/v\//, '/e/') },
-    { regex: /mixdrop\.[a-z]+/i, name: 'Mixdrop', transform: u => u.replace(/\/f\//, '/e/') },
-    { regex: /upstream\.[a-z]+/i, name: 'Upstream', transform: u => u.replace(/\/d\//, '/embed-') },
-    { regex: /mega\.(nz|io)/i, name: 'Mega', transform: u => u.replace(/\/file\//, '/embed/') },
-    { regex: /ok\.ru/i, name: 'Okru', transform: u => u.replace(/\/video\//, '/videoembed/') }
-  ],
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MorvehTV Gestor</title>
+  <!-- Aquí van tus estilos CSS -->
+</head>
+<body>
 
-  // Extrae y limpia el enlace si viene dentro de una etiqueta iframe
-  extractUrl(rawInput) {
-    if (!rawInput) return '';
-    let text = rawInput.trim();
-    const iframeMatch = text.match(/src=["']([^"']+)["']/i);
-    if (iframeMatch) {
-      text = iframeMatch[1];
-    }
-    if (text.startsWith('//')) {
-      text = 'https:' + text;
-    }
-    return text;
-  },
+  <!-- AQUÍ VA TU INTERFAZ (Formularios, botones, inputs, etc.) -->
 
-  // Genera el nombre de la plataforma dinámicamente desde el dominio
-  extractName(url) {
-    // 1. Comprueba si es una plataforma conocida
-    for (const rule of this.knownRules) {
-      if (rule.regex.test(url)) return rule.name;
-    }
 
-    // 2. Extracción heurística automática para las miles de plataformas restantes
-    try {
-      const parsed = new URL(url);
-      const hostParts = parsed.hostname.replace(/^(www\.|embed\.|player\.|stream\.|video\.|cloud\.)/i, '').split('.');
-      if (hostParts.length >= 2) {
-        const rawName = hostParts[0];
-        return rawName.charAt(0).toUpperCase() + rawName.slice(1).toLowerCase();
+  <!-- EL CÓDIGO JS DEBE IR AQUÍ DENTRO DE <script> -->
+  <script>
+    /**
+     * Motor Universal de Procesamiento de Reproductores para MorvehTV Gestor
+     */
+    const StreamEngine = {
+      knownRules: [
+        { regex: /byse\.[a-z]+/i, name: 'Byse', transform: u => u.replace(/\/(v|d|f)\//, '/e/') },
+        { regex: /(streamwish|wishfast|swish)\.[a-z]+/i, name: 'Streamwish', transform: u => u.replace(/\/f\//, '/e/') },
+        { regex: /voe\.[a-z]+/i, name: 'Voe', transform: u => u.replace(/\/v\//, '/e/') },
+        { regex: /(filelions|lionplayer)\.[a-z]+/i, name: 'Filelions', transform: u => u.replace(/\/d\//, '/v/') },
+        { regex: /dood(stream)?\.[a-z]+/i, name: 'Doodstream', transform: u => u.replace(/\/d\//, '/e/') },
+        { regex: /vidmoly\.[a-z]+/i, name: 'Vidmoly', transform: u => u.replace(/\/w\//, '/embed-') },
+        { regex: /streamtape\.[a-z]+/i, name: 'Streamtape', transform: u => u.replace(/\/v\//, '/e/') },
+        { regex: /mixdrop\.[a-z]+/i, name: 'Mixdrop', transform: u => u.replace(/\/f\//, '/e/') },
+        { regex: /upstream\.[a-z]+/i, name: 'Upstream', transform: u => u.replace(/\/d\//, '/embed-') },
+        { regex: /mega\.(nz|io)/i, name: 'Mega', transform: u => u.replace(/\/file\//, '/embed/') },
+        { regex: /ok\.ru/i, name: 'Okru', transform: u => u.replace(/\/video\//, '/videoembed/') }
+      ],
+
+      extractUrl(rawInput) {
+        if (!rawInput) return '';
+        let text = rawInput.trim();
+        const iframeMatch = text.match(/src=["']([^"']+)["']/i);
+        if (iframeMatch) {
+          text = iframeMatch[1];
+        }
+        if (text.startsWith('//')) {
+          text = 'https:' + text;
+        }
+        return text;
+      },
+
+      extractName(url) {
+        for (const rule of this.knownRules) {
+          if (rule.regex.test(url)) return rule.name;
+        }
+        try {
+          const parsed = new URL(url);
+          const hostParts = parsed.hostname.replace(/^(www\.|embed\.|player\.|stream\.|video\.|cloud\.)/i, '').split('.');
+          if (hostParts.length >= 2) {
+            const rawName = hostParts[0];
+            return rawName.charAt(0).toUpperCase() + rawName.slice(1).toLowerCase();
+          }
+          return 'Servidor Web';
+        } catch (e) {
+          return 'Servidor Web';
+        }
+      },
+
+      normalize(rawInput) {
+        let url = this.extractUrl(rawInput);
+        if (!url) return '';
+        for (const rule of this.knownRules) {
+          if (rule.regex.test(url)) {
+            return rule.transform(url);
+          }
+        }
+        try {
+          const parsed = new URL(url);
+          if (/^\/(v|d|f|watch|play)\//i.test(parsed.pathname)) {
+            parsed.pathname = parsed.pathname.replace(/^\/(v|d|f|watch|play)\//i, '/e/');
+            return parsed.toString();
+          }
+        } catch (e) {}
+        return url;
+      },
+
+      buildPlayers(rawInputs, defaultLang = 'Castellano') {
+        return rawInputs
+          .map(input => input.trim())
+          .filter(input => input.length > 0)
+          .map((input, index) => {
+            const cleanUrl = this.normalize(input);
+            const serverName = this.extractName(cleanUrl);
+            return {
+              server: serverName,
+              lang: defaultLang,
+              url: cleanUrl,
+              embed: `<iframe src="${cleanUrl}" frameborder="0" allowfullscreen webkitallowfullscreen mozallowfullscreen></iframe>`,
+              order: index + 1
+            };
+          });
       }
-      return 'Servidor Web';
-    } catch (e) {
-      return 'Servidor Web';
-    }
-  },
-
-  // Normaliza cualquier ruta a formato reproducible
-  normalize(rawInput) {
-    let url = this.extractUrl(rawInput);
-    if (!url) return '';
-
-    // Aplica transformación específica si coincide
-    for (const rule of this.knownRules) {
-      if (rule.regex.test(url)) {
-        return rule.transform(url);
-      }
-    }
-
-    // Patrones heurísticos genéricos de visualización/descarga -> embed
-    try {
-      const parsed = new URL(url);
-      // Convierte rutas comunes como /watch/ID, /v/ID o /d/ID a /e/ID
-      if (/^\/(v|d|f|watch|play)\//i.test(parsed.pathname)) {
-        parsed.pathname = parsed.pathname.replace(/^\/(v|d|f|watch|play)\//i, '/e/');
-        return parsed.toString();
-      }
-    } catch (e) {}
-
-    return url;
-  },
-
-  // Empaqueta los enlaces procesados para el post meta de WordPress / Cine Movie Engine
-  buildPlayers(rawInputs, defaultLang = 'Castellano') {
-    return rawInputs
-      .map(input => input.trim())
-      .filter(input => input.length > 0)
-      .map((input, index) => {
-        const cleanUrl = this.normalize(input);
-        const serverName = this.extractName(cleanUrl);
-        return {
-          server: serverName,
-          lang: defaultLang,
-          url: cleanUrl,
-          embed: `<iframe src="${cleanUrl}" frameborder="0" allowfullscreen webkitallowfullscreen mozallowfullscreen></iframe>`,
-          order: index + 1
-        };
-      });
-  }
-};
+    };
+  </script>
+</body>
+</html>
