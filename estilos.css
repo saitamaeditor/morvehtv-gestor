@@ -261,3 +261,10 @@ label { display: flex; flex-direction: column; gap: 6px; color: var(--suave); fo
 
 /* Un colaborador no tiene ninguno de los botones de administración: sin hueco vacío */
 .colaborador .lateral .extra { display: none; }
+
+/* Fuentes de datos en «Añadir título» */
+.fuentes { display: flex; flex-wrap: wrap; gap: 6px; }
+.fuente { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--borde); background: var(--panel2); color: var(--suave); font-weight: 600; font-size: 13px; cursor: pointer; }
+.fuente:hover { color: var(--texto); border-color: var(--acento); }
+.fuente.activa { background: var(--acento); border-color: var(--acento); color: #fff; }
+.resultado .de-fuente { color: var(--suave); }

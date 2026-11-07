@@ -798,6 +798,18 @@
     });
   }
 
+  // Fuentes de datos para «Añadir título» (TMDB y las demás: TVmaze, AniList, Kitsu, Wikipedia)
+  const FUENTES = {
+    tmdb: { nombre: 'TMDB', para: 'Películas y series (la principal)' },
+    tvmaze: { nombre: 'TVmaze', para: 'Series, programas y realities' },
+    anilist: { nombre: 'AniList', para: 'Anime' },
+    kitsu: { nombre: 'Kitsu', para: 'Anime (con nombre de capítulos)' },
+    wikipedia: { nombre: 'Wikipedia', para: 'Documentales, programas y lo que no esté en otras' },
+  };
+  let fuente = 'tmdb';
+  try { const f = localStorage.getItem('gestor-fuente'); if (FUENTES[f]) fuente = f; } catch {}
+  let origen = 'TMDB'; // de dónde es la ficha abierta, para los textos
+
   $('#b-titulo').onclick = () => ventana(async (v, cerrar) => {
     let ficha = null;
     const asignados = new Map(); // 'pelicula' o 'T-E' → File
@@ -806,9 +818,18 @@
     // --- Buscar ---
     function pintarBusqueda(texto = '') {
       v.innerHTML = '';
-      v.append(el('h2', null, '🎬 Añadir película o serie'), el('p', null, 'Busca por nombre, o pega el enlace o el código de IMDb (tt…) o de TMDB (themoviedb.org/movie/… o /tv/…, o solo su número). Después eliges la carpeta y el archivo de cada capítulo: se suben con su nombre bien puesto.'));
+      v.append(el('h2', null, '🎬 Añadir película o serie'), el('p', null, 'Busca por nombre, o pega el enlace o el código de IMDb (tt…) o de TMDB (themoviedb.org/movie/… o /tv/…, o solo su número). Si no sale en TMDB, prueba en otra fuente. Después eliges la carpeta y el archivo de cada capítulo: se suben con su nombre bien puesto.'));
+      // Dónde buscar: TMDB (la principal) u otra fuente de datos
+      const fuentes = el('div', 'fuentes');
+      for (const [id, f] of Object.entries(FUENTES)) {
+        const ch = el('button', `fuente${id === fuente ? ' activa' : ''}`, f.nombre);
+        ch.type = 'button'; ch.title = f.para;
+        ch.onclick = () => { fuente = id; try { localStorage.setItem('gestor-fuente', id); } catch {} fuentes.querySelectorAll('.fuente').forEach((x) => x.classList.toggle('activa', x === ch)); q.placeholder = id === 'tmdb' ? 'Nombre, enlace de IMDb o TMDB, tt… o número de TMDB' : `Nombre en ${f.nombre}`; if (q.value.trim()) buscar(); else q.focus(); };
+        fuentes.append(ch);
+      }
+      v.append(fuentes);
       const fila = el('div', 'buscador');
-      const q = el('input'); q.placeholder = 'Nombre, enlace de IMDb o TMDB, tt… o número de TMDB'; q.value = texto;
+      const q = el('input'); q.placeholder = fuente === 'tmdb' ? 'Nombre, enlace de IMDb o TMDB, tt… o número de TMDB' : `Nombre en ${FUENTES[fuente].nombre}`; q.value = texto;
       const b = el('button', 'boton primario', 'Buscar');
       fila.append(q, b);
       const res = el('div', 'resultados');
@@ -818,14 +839,16 @@
         if (q.value.trim().length < 2) return q.focus();
         res.innerHTML = '<div class="cargando">Buscando…</div>';
         try {
-          const lista = await api(`/api/panel/titulos?q=${encodeURIComponent(q.value.trim())}`);
+          const lista = await api(`/api/panel/titulos?q=${encodeURIComponent(q.value.trim())}&fuente=${fuente}`);
           res.innerHTML = '';
-          if (!lista.length) res.append(el('div', 'vacio', /tt\d{5,}/.test(q.value) ? 'Ese código de IMDb no está enlazado en TMDB (pasa con algunas novelas y estrenos). Busca la serie por su nombre o pega el enlace de themoviedb.org.' : 'No se ha encontrado nada. Prueba con otro nombre o con el enlace de IMDb o de TMDB.'));
+          if (!lista.length) res.append(el('div', 'vacio', fuente !== 'tmdb' ? `No se ha encontrado nada en ${FUENTES[fuente].nombre}. Prueba con otro nombre (a veces en inglés o en el idioma original) o en otra fuente.` : /tt\d{5,}/.test(q.value) ? 'Ese código de IMDb no está enlazado en TMDB (pasa con algunas novelas y estrenos). Busca la serie por su nombre, pega el enlace de themoviedb.org o prueba en otra fuente.' : 'No se ha encontrado nada. Prueba con otro nombre, con el enlace de IMDb o de TMDB, o en otra fuente de arriba.'));
           for (const r of lista) {
+            r.fuente = r.fuente || 'tmdb';
             const t = el('button', 'resultado');
             if (r.poster) { const im = el('img'); im.src = r.poster; im.alt = ''; im.loading = 'lazy'; t.append(im); } else t.append(el('div', 'sin', '🎞'));
             const info = el('div');
             info.append(el('span', `etiqueta ${r.tipo}`, r.tipo === 'serie' ? 'Serie' : 'Película'), el('small', null, r.anio || ''));
+            if (r.fuente !== 'tmdb') info.append(el('small', 'de-fuente', ` · ${FUENTES[r.fuente]?.nombre ?? r.fuente}`));
             t.append(el('b', null, r.titulo), info);
             t.onclick = () => abrirFicha(r, q.value);
             res.append(t);
@@ -841,7 +864,9 @@
     // --- Ficha, carpeta y archivos ---
     async function abrirFicha(r, busqueda) {
       v.innerHTML = '<div class="cargando">Cargando capítulos…</div>';
-      try { ficha = await api(`/api/panel/titulo?tipo=${r.tipo}&id=${r.tmdbId}`); } catch (e) { aviso(e.message, 'mal'); return pintarBusqueda(busqueda); }
+      try { ficha = await api(`/api/panel/titulo?tipo=${r.tipo}&id=${encodeURIComponent(r.fuente === 'tmdb' ? r.tmdbId : r.id)}&fuente=${r.fuente}`); } catch (e) { aviso(e.message, 'mal'); return pintarBusqueda(busqueda); }
+      ficha.fuente = ficha.fuente || 'tmdb';
+      origen = ficha.fuente === 'tmdb' ? 'TMDB' : (ficha.fuenteNombre || FUENTES[ficha.fuente]?.nombre || ficha.fuente);
       asignados.clear();
       const serie = ficha.tipo === 'serie';
       const base = seguro(`${ficha.titulo}${ficha.anio ? ` - ${ficha.anio}` : ''}`);
@@ -862,7 +887,8 @@
       txt.append(meta);
       if (ficha.sinopsis) txt.append(el('p', 'sinopsis', ficha.sinopsis));
       if (ficha.imdb) { const a = el('a', null, `IMDb ${ficha.imdb} ↗`); a.href = `https://www.imdb.com/title/${ficha.imdb}/`; a.target = '_blank'; a.rel = 'noopener'; txt.append(a); }
-      { const a = el('a', null, `TMDB ${ficha.tmdbId} ↗`); a.href = `https://www.themoviedb.org/${serie ? 'tv' : 'movie'}/${ficha.tmdbId}`; a.target = '_blank'; a.rel = 'noopener'; if (ficha.imdb) txt.append(' · '); txt.append(a); }
+      if (ficha.fuente === 'tmdb') { const a = el('a', null, `TMDB ${ficha.tmdbId} ↗`); a.href = `https://www.themoviedb.org/${serie ? 'tv' : 'movie'}/${ficha.tmdbId}`; a.target = '_blank'; a.rel = 'noopener'; if (ficha.imdb) txt.append(' · '); txt.append(a); }
+      else if (ficha.web) { const a = el('a', null, `${origen} ↗`); a.href = ficha.web; a.target = '_blank'; a.rel = 'noopener'; txt.append(a); }
       cab.append(txt);
       v.append(cab);
 
@@ -1018,7 +1044,7 @@
           pintarTemporada(t, true);
           cajas.get(n).scrollIntoView({ block: 'center', behavior: 'smooth' });
         };
-        todos.append(bt, nuevaT, el('span', 'resumen', 'O en cada temporada, «📂 Temporada completa»: eliges todos sus archivos y se colocan en orden. Si TMDB tiene menos capítulos, se añaden los que falten.'));
+        todos.append(bt, nuevaT, el('span', 'resumen', `O en cada temporada, «📂 Temporada completa»: eliges todos sus archivos y se colocan en orden. Si ${origen} tiene menos capítulos, se añaden los que falten.`));
         v.append(todos);
         const cajas = new Map(); // número de temporada → su bloque
         const huecoTemporadas = el('div');
@@ -1033,9 +1059,9 @@
           bt2.title = 'Elige todos los archivos de la temporada a la vez: se colocan por el número del nombre o, si no lo trae, en orden';
           bt2.onclick = async (e) => { e.preventDefault(); const files = await elegirArchivos(true); if (files.length) repartir(files, t.numero); };
           const extra = t.episodios.filter((x) => x.nuevo).length;
-          s.append(el('span', null, `${t.nombre} · ${t.episodios.length} capítulos${extra ? ` (${extra} no están en TMDB)` : ''}`), el('span', 'hueco'), bt2);
+          s.append(el('span', null, `${t.nombre} · ${t.episodios.length} capítulos${extra ? ` (${extra} no están en ${origen})` : ''}`), el('span', 'hueco'), bt2);
           d.append(s);
-          if (!t.episodios.length) d.append(el('p', 'resumen', 'TMDB no tiene capítulos de esta temporada: pulsa «📂 Temporada completa…» y se crean con tus archivos.'));
+          if (!t.episodios.length) d.append(el('p', 'resumen', `${origen} no tiene capítulos de esta temporada: pulsa «📂 Temporada completa…» y se crean con tus archivos.`));
           for (const ep of t.episodios) {
             const k = `${t.numero}-${ep.numero}`;
             const f = filaArchivo(k, `E${dos(ep.numero)}`, ep.titulo || `Capítulo ${ep.numero}`);
@@ -1051,7 +1077,7 @@
           if (despues) despues[1].before(d); else huecoTemporadas.append(d);
         }
         ficha.temporadas.forEach((t) => pintarTemporada(t, true));
-        if (!ficha.temporadas.length) huecoTemporadas.append(el('p', 'resumen', 'TMDB todavía no tiene temporadas de esta serie: pulsa «＋ Añadir temporada».'));
+        if (!ficha.temporadas.length) huecoTemporadas.append(el('p', 'resumen', `${origen} todavía no tiene temporadas de esta serie: pulsa «＋ Añadir temporada».`));
       }
       v.append(pie);
       actualizarPie();
@@ -1064,7 +1090,7 @@
           if (!serie) {
             const file = asignados.get('pelicula');
             trabajos.push({ file, carpeta: carpetaDe(), nombre: nombreDe(null, null, file) });
-            await api('/api/panel/vincular', { clave: `${seccion}${nombreDe(null, null, file)}`, tmdbId: ficha.tmdbId, tipo: 'pelicula' }).catch(() => {});
+            await api('/api/panel/vincular', { clave: `${seccion}${nombreDe(null, null, file)}`, tmdbId: ficha.tmdbId, tipo: 'pelicula', fuente: ficha.fuente, id: ficha.id }).catch(() => {});
           } else {
             for (const [clave, file] of asignados) {
               const [t, n] = clave.split('-').map(Number);
@@ -1073,7 +1099,7 @@
             }
             const carpetas = [`${seccion}${base}/`, ...new Set(trabajos.map((x) => x.carpeta))];
             await api('/api/panel/carpeta', { carpetas });
-            if (!enviados.size) await api('/api/panel/vincular', { clave: `${seccion}${base}/`, tmdbId: ficha.tmdbId, tipo: 'serie' }).catch(() => {});
+            if (!enviados.size) await api('/api/panel/vincular', { clave: `${seccion}${base}/`, tmdbId: ficha.tmdbId, tipo: 'serie', fuente: ficha.fuente, id: ficha.id }).catch(() => {});
             trabajos.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { numeric: true }));
           }
           if (!serie) {
