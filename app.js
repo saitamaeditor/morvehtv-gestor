@@ -126,7 +126,8 @@
     document.documentElement.classList.toggle('colaborador', !soyAdmin);
     $('#usuario').textContent = (yo.nombre || yo.usuario) + (soyAdmin ? '' : ' · colaborador');
     // Lo que un colaborador no puede usar, ni se ve
-    ['#b-papelera', '#b-registro', '#b-anuncios', '#b-usdc', '#b-colaboradores', '#sel-mover', '#sel-borrar'].forEach((s) => { const b = $(s); if (b) b.hidden = !soyAdmin; });
+    ['#b-papelera', '#b-registro', '#b-anuncios', '#b-usdc', '#b-colaboradores', '#b-mantenimiento', '#sel-mover', '#sel-borrar'].forEach((s) => { const b = $(s); if (b) b.hidden = !soyAdmin; });
+    if (soyAdmin) api('/api/panel/mantenimiento').then(pintarMantenimiento).catch(() => {});
     $('#vista-entrar').hidden = true; $('#vista-panel').hidden = false;
     $('#ir-web').href = window.MORVEHTV.web;
     irA(decodeURIComponent(location.hash.slice(1)));
@@ -530,6 +531,48 @@
   // Cuentas de MorvehTV que pueden entrar al gestor para SUBIR contenido y crear carpetas, solo
   // en las secciones que se les den. No pueden borrar, mover ni ver la papelera, el registro, los
   // anuncios o los pagos. Se quitan cuando se quiera y dejan de poder al momento.
+  // ---------- Web en mantenimiento ----------
+  // Mientras está puesto, en la web, la app y la tele solo se ve la pantalla de mantenimiento;
+  // los administradores siguen entrando (por morvehtv.com/entrar.html?admin)
+  let mantenimiento = { activo: false };
+  function pintarMantenimiento(m) {
+    mantenimiento = m || { activo: false };
+    const b = $('#b-mantenimiento');
+    b.textContent = mantenimiento.activo ? '🛠 Mantenimiento: ACTIVO' : '🛠 Mantenimiento';
+    b.classList.toggle('peligro', mantenimiento.activo);
+    b.classList.toggle('lleno', mantenimiento.activo);
+  }
+  $('#b-mantenimiento').onclick = () => ventana(async (v, cerrar) => {
+    v.append(el('h2', null, '🛠 Web en mantenimiento'), el('p', null, 'Comprobando…'));
+    try { pintarMantenimiento(await api('/api/panel/mantenimiento')); } catch (e) { v.lastChild.textContent = e.message; return; }
+    v.lastChild.remove();
+    const activo = mantenimiento.activo;
+    const estado = el('p');
+    estado.append(el('b', null, activo ? '🔴 La web está en mantenimiento.' : '🟢 La web está abierta.'), ' ',
+      activo ? `Desde ${fecha(mantenimiento.desde)}${mantenimiento.por ? ` (${mantenimiento.por})` : ''}. Solo los administradores pueden entrar.`
+        : 'Al ponerla en mantenimiento, la gente verá una pantalla de aviso en la web, la app y la tele, sin poder ver nada. Quien esté viendo algo saldrá a esa pantalla.');
+    v.append(estado);
+    const l = el('label', null, 'Mensaje para la gente (opcional)');
+    const t = el('textarea'); t.rows = 3; t.maxLength = 300; t.value = mantenimiento.mensaje || '';
+    t.placeholder = 'Ej.: Estamos cambiando el servidor. Volvemos sobre las 18:00.';
+    t.style.cssText = 'width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--borde);background:var(--fondo);resize:vertical';
+    l.append(t); v.append(l);
+    v.append(el('p', null, 'Los administradores entran por morvehtv.com/entrar.html?admin para comprobar que todo va bien antes de abrir.'));
+    botones(v, cerrar, activo ? '🟢 Abrir la web' : '🛠 Poner en mantenimiento', activo ? 'primario' : 'peligro lleno', async () => {
+      try {
+        pintarMantenimiento(await api('/api/panel/mantenimiento', { activo: !activo, mensaje: t.value }));
+        aviso(activo ? 'La web vuelve a estar abierta' : 'Web en mantenimiento', 'bien');
+        cerrar(true);
+      } catch (e) { aviso(e.message, 'mal'); }
+    });
+    // Con el mantenimiento puesto, también se puede cambiar solo el mensaje
+    if (activo) {
+      const g = el('button', 'boton', 'Guardar el mensaje');
+      g.onclick = async () => { try { pintarMantenimiento(await api('/api/panel/mantenimiento', { activo: true, mensaje: t.value })); aviso('Mensaje guardado', 'bien'); cerrar(true); } catch (e) { aviso(e.message, 'mal'); } };
+      v.querySelector('.botones').prepend(g);
+    }
+  });
+
   $('#b-colaboradores').onclick = () => ventana(async (v, cerrar) => {
     async function pintar() {
       v.innerHTML = '<div class="cargando">Cargando…</div>';
