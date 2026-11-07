@@ -536,7 +536,7 @@
   // sinopsis, cartel, fondo y capítulos escritos a mano. El visor las usa en vez de la búsqueda.
   const urlImagen = (x) => (!x ? '' : /^https?:\/\//.test(x) ? x : `${API}/fichas/${encodeURIComponent(x)}`);
   const capitulosATexto = (temps) => Object.keys(temps || {}).sort((a, b) => a - b)
-    .map((t) => [`Temporada ${t}`, ...temps[t].map((e) => [e.numero, e.titulo || '', e.sinopsis || ''].join(' | ').replace(/( \| )+$/, ''))].join('\n')).join('\n\n');
+    .map((t) => [`Temporada ${t}`, ...temps[t].map((e) => (e.sinopsis ? `${e.numero} | ${e.titulo || ''} | ${e.sinopsis}` : `${e.numero} | ${e.titulo || ''}`))].join('\n')).join('\n\n');
   function textoACapitulos(texto) {
     const temps = {}; let t = 1;
     for (const linea of String(texto).split(/\r?\n/)) {
