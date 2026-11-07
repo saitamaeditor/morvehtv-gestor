@@ -126,7 +126,7 @@
     document.documentElement.classList.toggle('colaborador', !soyAdmin);
     $('#usuario').textContent = (yo.nombre || yo.usuario) + (soyAdmin ? '' : ' · colaborador');
     // Lo que un colaborador no puede usar, ni se ve
-    ['#b-papelera', '#b-registro', '#b-anuncios', '#b-usdc', '#b-colaboradores', '#b-mantenimiento', '#b-fichas', '#sel-mover', '#sel-borrar'].forEach((s) => { const b = $(s); if (b) b.hidden = !soyAdmin; });
+    ['#b-papelera', '#b-registro', '#b-anuncios', '#b-usdc', '#b-colaboradores', '#b-mantenimiento', '#b-fichas', '#b-avisos', '#sel-mover', '#sel-borrar'].forEach((s) => { const b = $(s); if (b) b.hidden = !soyAdmin; });
     if (soyAdmin) api('/api/panel/mantenimiento').then(pintarMantenimiento).catch(() => {});
     $('#vista-entrar').hidden = true; $('#vista-panel').hidden = false;
     $('#ir-web').href = window.MORVEHTV.web;
@@ -531,6 +531,45 @@
   // Cuentas de MorvehTV que pueden entrar al gestor para SUBIR contenido y crear carpetas, solo
   // en las secciones que se les den. No pueden borrar, mover ni ver la papelera, el registro, los
   // anuncios o los pagos. Se quitan cuando se quiera y dejan de poder al momento.
+  // ---------- Avisos del reproductor ----------
+  // Mensajes propios (Telegram, novedades, mantenimientos…) que salen en una tarjeta pequeña al
+  // empezar un vídeo, en la web, la app y la tele. No son anuncios de nadie.
+  $('#b-avisos').onclick = () => ventana(async (v, cerrar) => {
+    v.append(el('h2', null, '📣 Avisos del reproductor'), el('p', null, 'Mensajes tuyos que salen abajo a la izquierda al empezar un vídeo (en la web, la app y la tele): por ejemplo, «Únete a nuestro grupo de Telegram» o «Esta noche hay mantenimiento». Se van solos a los 10 segundos y salen como mucho uno cada 10 minutos en cada aparato. Si hay varios, se van turnando.'));
+    const lista = el('div', 'lista-anuncios');
+    v.append(lista);
+    let avisos = [];
+    try { avisos = (await api('/api/panel/avisos')).avisos; } catch (e) { lista.append(el('div', 'vacio', e.message)); return; }
+    const pintar = () => {
+      lista.innerHTML = '';
+      if (!avisos.length) lista.append(el('div', 'vacio', 'Todavía no hay avisos'));
+      avisos.forEach((x, n) => {
+        const caja = el('div', 'anuncio-ed');
+        const texto = el('textarea'); texto.className = 'area'; texto.rows = 2; texto.maxLength = 160; texto.value = x.texto || ''; texto.placeholder = 'Ej.: Únete a nuestro grupo de Telegram para enterarte de las novedades';
+        texto.oninput = () => { x.texto = texto.value; };
+        const enlace = el('input'); enlace.value = x.enlace || ''; enlace.placeholder = 'https://… (opcional)'; enlace.oninput = () => { x.enlace = enlace.value; };
+        const bot = el('input'); bot.value = x.boton || ''; bot.placeholder = 'Texto del botón (p. ej. Unirme)'; bot.maxLength = 24; bot.oninput = () => { x.boton = bot.value; };
+        const l1 = el('label'); l1.append('Mensaje (hasta 160 letras)', texto); l1.style.gridColumn = '1 / -1';
+        const l2 = el('label'); l2.append('Enlace', enlace);
+        const l3 = el('label'); l3.append('Botón', bot);
+        const act = el('label', 'check'); const ch = el('input'); ch.type = 'checkbox'; ch.checked = x.activo !== false; ch.onchange = () => { x.activo = ch.checked; };
+        act.append(ch, document.createTextNode(' Activo'));
+        const borrar = el('button', 'boton fino peligro', 'Quitar'); borrar.onclick = () => { avisos.splice(n, 1); pintar(); };
+        const pie = el('div', 'pie-anuncio'); pie.append(act, borrar);
+        caja.append(l1, l2, l3, pie);
+        lista.append(caja);
+      });
+    };
+    pintar();
+    const otro = el('button', 'boton', '＋ Añadir aviso');
+    otro.onclick = () => { if (avisos.length >= 20) return aviso('Como mucho 20 avisos', 'mal'); avisos.push({ texto: '', activo: true }); pintar(); lista.lastChild.querySelector('textarea').focus(); };
+    v.append(otro);
+    botones(v, cerrar, 'Guardar', 'primario', async () => {
+      try { avisos = (await api('/api/panel/avisos', { avisos })).avisos; aviso(`Guardado: ${avisos.filter((x) => x.activo).length} avisos activos`, 'bien'); cerrar(true); }
+      catch (e) { aviso(e.message, 'mal'); }
+    });
+  }, { grande: true });
+
   // ---------- Fichas a mano ----------
   // Para lo que no está en ninguna base de datos (o tiene otra numeración de capítulos): título,
   // sinopsis, cartel, fondo y capítulos escritos a mano. El visor las usa en vez de la búsqueda.
