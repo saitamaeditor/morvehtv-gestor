@@ -579,8 +579,39 @@
       let d;
       try { d = await api('/api/panel/colaboradores'); } catch (e) { v.innerHTML = ''; v.append(el('div', 'vacio', e.message)); return; }
       v.innerHTML = '';
-      v.append(el('h2', null, '👥 Colaboradores'),
-        el('p', null, 'Pueden entrar en este gestor con su cuenta de MorvehTV para subir contenido y crear carpetas, solo en las secciones que elijas. No pueden borrar ni mover nada, ni ver la papelera, el registro, los anuncios o los pagos. Todo lo que suban queda en el registro con su nombre.'));
+      v.append(el('h2', null, '👥 Permisos'),
+        el('p', null, 'Dos papeles: los administradores pueden con todo (borrar, mover, papelera, registro, mantenimiento y dar permisos a otros). Los colaboradores solo suben contenido y crean carpetas en las secciones que elijas, y todo lo que suban queda en el registro con su nombre.'));
+
+      // Administradores
+      v.append(el('h3', null, `👑 Administradores (${d.admins.length})`));
+      const listaAdmins = el('div', 'registro');
+      for (const x of d.admins) {
+        const f = el('div', 'fila-registro');
+        const botonesA = el('span', 'botones-colab');
+        if (x.usuario === d.yo) botonesA.append(el('small', null, 'tú'));
+        else if (x.fijo) botonesA.append(el('small', null, 'fijo en el servidor'));
+        else {
+          const aColab = el('button', 'boton fino', 'Pasar a colaborador');
+          aColab.onclick = async () => {
+            const secciones = await elegirSecciones(`Pasar a ${x.usuario} a colaborador`, `Dejará de ser administrador y solo podrá subir en las secciones que marques.`, d.secciones);
+            if (!secciones) return;
+            try { await api('/api/panel/admins/quitar', { usuario: x.usuario, secciones }); aviso(`${x.usuario} ahora es colaborador`, 'bien'); } catch (e) { aviso(e.message, 'mal'); }
+            pintar();
+          };
+          const quitarA = el('button', 'boton fino peligro', 'Quitar');
+          quitarA.onclick = async () => {
+            if (!(await confirmar('Quitar administrador', `${x.usuario} dejará de poder entrar en el gestor. Su cuenta de MorvehTV sigue (como usuario normal).`, null, 'Quitar', true))) return;
+            try { await api('/api/panel/admins/quitar', { usuario: x.usuario }); aviso(`${x.usuario} ya no es administrador`, 'bien'); } catch (e) { aviso(e.message, 'mal'); }
+            pintar();
+          };
+          botonesA.append(aColab, quitarA);
+        }
+        f.append(el('b', null, x.usuario + (x.existe ? '' : ' (sin cuenta)')), el('span', null, 'Todo'), el('small', null, ''), botonesA);
+        listaAdmins.append(f);
+      }
+      v.append(listaAdmins);
+
+      v.append(el('h3', null, `🧑‍💻 Colaboradores (${d.colaboradores.length})`));
       const lista = el('div', 'registro');
       if (!d.colaboradores.length) lista.append(el('div', 'vacio', 'Todavía no hay colaboradores'));
       for (const x of d.colaboradores) {
@@ -598,13 +629,35 @@
           if (!nueva) return;
           try { await api('/api/panel/colaboradores/clave', { usuario: x.usuario, clave: nueva }); mostrarDatos(x.usuario, nueva); } catch (e) { aviso(e.message, 'mal'); }
         };
-        const botones = el('span', 'botones-colab'); botones.append(clave, quitar);
+        const hacerAdmin = el('button', 'boton fino', '👑 Hacer admin');
+        hacerAdmin.title = 'Darle permiso de administrador: podrá con todo';
+        hacerAdmin.onclick = async () => {
+          if (!(await confirmar('Hacer administrador', `${x.usuario} podrá hacer de todo en el gestor: borrar y mover contenido, vaciar la papelera, poner la web en mantenimiento y dar o quitar permisos (también a ti). Dáselo solo a alguien de total confianza.`, null, 'Hacer administrador'))) return;
+          try { await api('/api/panel/admins/dar', { usuario: x.usuario }); aviso(`${x.usuario} ahora es administrador`, 'bien'); } catch (e) { aviso(e.message, 'mal'); }
+          pintar();
+        };
+        if (!x.existe) hacerAdmin.hidden = true;
+        const botones = el('span', 'botones-colab'); botones.append(hacerAdmin, clave, quitar);
         f.append(el('b', null, x.usuario + (x.existe ? '' : ' (cuenta borrada)')), el('span', null, x.secciones.map((s) => s.replace(/\/$/, '')).join(' · ')), el('small', null, `desde ${fecha(x.creado)}`), botones);
         lista.append(f);
       }
       v.append(lista);
-      // Crear la cuenta del colaborador (usuario, nombre y contraseña)
-      v.append(el('h3', null, 'Crear colaborador'));
+      // Papel: administrador (todo) o colaborador (solo las secciones marcadas)
+      const selectorRol = (nombre, secciones, alCambiar) => {
+        const caja = el('div', 'colab-secciones');
+        const opcion = (valor, texto, marcada) => {
+          const l = el('label', 'check'); const r = el('input'); r.type = 'radio'; r.name = nombre; r.value = valor; r.checked = marcada;
+          r.onchange = () => { secciones.hidden = valor === 'admin'; alCambiar?.(valor); };
+          l.append(r, document.createTextNode(' ' + texto)); caja.append(l); return r;
+        };
+        const colab = opcion('colaborador', '🧑‍💻 Colaborador (solo subir en sus secciones)', true);
+        opcion('admin', '👑 Administrador (todo)', false);
+        return { caja, rol: () => (colab.checked ? 'colaborador' : 'admin') };
+      };
+      const avisoAdmin = 'Un administrador puede hacer de todo en el gestor: borrar y mover contenido, vaciar la papelera, poner la web en mantenimiento y dar o quitar permisos (también a ti). Dáselo solo a alguien de total confianza.';
+
+      // Crear la cuenta (usuario, nombre y contraseña) con su papel
+      v.append(el('h3', null, 'Crear cuenta'));
       const crea = el('div', 'colab-form');
       const cu = el('input'); cu.placeholder = 'Usuario (3 a 20: letras, números, . _ -)'; cu.autocapitalize = 'none'; cu.autocomplete = 'off'; cu.spellcheck = false;
       const cn = el('input'); cn.placeholder = 'Nombre (opcional)'; cn.autocomplete = 'off';
@@ -618,19 +671,23 @@
         l.append(c, document.createTextNode(' ' + s.replace(/\/$/, ''))); casillasC.append(l); return c;
       });
       const crear = el('button', 'boton primario', 'Crear cuenta de colaborador');
+      const seccionesC = el('div'); seccionesC.append(el('small', null, 'Secciones en las que puede subir:'), casillasC);
+      const rolC = selectorRol('rol-crear', seccionesC, (r) => { crear.textContent = r === 'admin' ? 'Crear cuenta de administrador' : 'Crear cuenta de colaborador'; });
       crear.onclick = async () => {
+        const rol = rolC.rol();
         const secciones = marcasC.filter((c) => c.checked).map((c) => c.value);
         const usuario = cu.value.trim().toLowerCase();
         if (!/^[a-z0-9._-]{3,20}$/.test(usuario)) return aviso('El usuario debe tener de 3 a 20 caracteres: letras, números, punto, guion o guion bajo', 'mal');
         if (cc.value.length < 8) return aviso('La contraseña debe tener al menos 8 caracteres', 'mal');
-        if (!secciones.length) return aviso('Marca al menos una sección', 'mal');
+        if (rol === 'colaborador' && !secciones.length) return aviso('Marca al menos una sección', 'mal');
+        if (rol === 'admin' && !(await confirmar('Crear administrador', avisoAdmin, null, 'Crear administrador'))) return;
         crear.disabled = true;
         try {
-          await api('/api/panel/colaboradores/crear', { usuario, nombre: cn.value.trim(), clave: cc.value, secciones });
+          await api('/api/panel/colaboradores/crear', { usuario, nombre: cn.value.trim(), clave: cc.value, secciones: rol === 'admin' ? [] : secciones, rol });
           mostrarDatos(usuario, cc.value);
         } catch (e) { aviso(e.message, 'mal'); crear.disabled = false; }
       };
-      crea.append(cu, cn, filaClave, el('small', null, 'Secciones en las que puede subir:'), casillasC, crear);
+      crea.append(cu, cn, filaClave, el('small', null, 'Papel:'), rolC.caja, seccionesC, crear);
       v.append(crea);
 
       // Añadir o cambiar (a alguien que ya tiene cuenta)
@@ -642,16 +699,24 @@
         const l = el('label', 'check'); const c = el('input'); c.type = 'checkbox'; c.value = s;
         l.append(c, document.createTextNode(' ' + s.replace(/\/$/, ''))); casillas.append(l); return c;
       });
-      const dar = el('button', 'boton primario', 'Dar permiso');
+      const dar = el('button', 'boton primario', 'Dar permiso de colaborador');
+      const seccionesD = el('div'); seccionesD.append(el('small', null, 'Secciones en las que puede subir:'), casillas);
+      const rolD = selectorRol('rol-dar', seccionesD, (r) => { dar.textContent = r === 'admin' ? 'Hacer administrador' : 'Dar permiso de colaborador'; });
       dar.onclick = async () => {
+        const rol = rolD.rol();
         const secciones = marcas.filter((c) => c.checked).map((c) => c.value);
-        if (!u.value.trim()) return aviso('Escribe el usuario', 'mal');
-        if (!secciones.length) return aviso('Marca al menos una sección', 'mal');
+        const usuario = u.value.trim().toLowerCase();
+        if (!usuario) return aviso('Escribe el usuario', 'mal');
+        if (rol === 'colaborador' && !secciones.length) return aviso('Marca al menos una sección', 'mal');
+        if (rol === 'admin' && !(await confirmar(`Hacer administrador a ${usuario}`, avisoAdmin, null, 'Hacer administrador'))) return;
         dar.disabled = true;
-        try { await api('/api/panel/colaboradores', { usuario: u.value.trim().toLowerCase(), secciones }); aviso('Listo: ya puede entrar en el gestor', 'bien'); pintar(); }
-        catch (e) { aviso(e.message, 'mal'); dar.disabled = false; }
+        try {
+          if (rol === 'admin') await api('/api/panel/admins/dar', { usuario });
+          else await api('/api/panel/colaboradores', { usuario, secciones });
+          aviso(rol === 'admin' ? `${usuario} ahora es administrador` : 'Listo: ya puede entrar en el gestor', 'bien'); pintar();
+        } catch (e) { aviso(e.message, 'mal'); dar.disabled = false; }
       };
-      form.append(u, el('small', null, 'Secciones en las que puede subir:'), casillas, dar);
+      form.append(u, el('small', null, 'Papel:'), rolD.caja, seccionesD, dar);
       v.append(form);
       const pie = el('div', 'botones'); const c = el('button', 'boton', 'Cerrar'); c.onclick = () => cerrar(null); pie.append(c); v.append(pie);
     }
@@ -670,6 +735,21 @@
     }
     pintar();
   }, { grande: true });
+  // Elegir secciones en una ventana (devuelve la lista, o null si se cancela)
+  const elegirSecciones = (titulo, texto, todas) => ventana((v, cerrar) => {
+    v.append(el('h2', null, titulo), el('p', null, texto), el('small', null, 'Secciones en las que podrá subir:'));
+    const caja = el('div', 'colab-secciones');
+    const marcas = todas.map((s) => {
+      const l = el('label', 'check'); const c = el('input'); c.type = 'checkbox'; c.value = s;
+      l.append(c, document.createTextNode(' ' + s.replace(/\/$/, ''))); caja.append(l); return c;
+    });
+    v.append(caja);
+    botones(v, cerrar, 'Pasar a colaborador', 'primario', () => {
+      const elegidas = marcas.filter((c) => c.checked).map((c) => c.value);
+      if (!elegidas.length) return aviso('Marca al menos una sección', 'mal');
+      cerrar(elegidas);
+    });
+  });
   // Contraseña segura al azar (sin letras que se confunden: 0/O, 1/l/I)
   function claveAlAzar() {
     const letras = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
