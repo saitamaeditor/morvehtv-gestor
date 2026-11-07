@@ -531,6 +531,69 @@
   // Cuentas de MorvehTV que pueden entrar al gestor para SUBIR contenido y crear carpetas, solo
   // en las secciones que se les den. No pueden borrar, mover ni ver la papelera, el registro, los
   // anuncios o los pagos. Se quitan cuando se quiera y dejan de poder al momento.
+  // ---------- Subir desde un enlace ----------
+  // Pegas el enlace directo de un vídeo (Drive, Dropbox, OneDrive, un servidor…) y el servidor lo
+  // descarga y lo sube a e2 a la vez, en la carpeta abierta. No hace falta tener el archivo aquí.
+  $('#b-enlace').onclick = () => {
+    if (!actual) return aviso('Entra primero en la carpeta donde quieres subirlo', 'mal');
+    ventana((v, cerrar) => {
+      v.append(el('h2', null, '🔗 Subir desde un enlace'),
+        el('p', null, 'Pega el enlace directo al archivo (un .mp4, .mkv… o un subtítulo): por ejemplo, el de descarga de Google Drive, Dropbox u OneDrive. El servidor lo descarga y lo sube a e2 sin pasar por tu ordenador. No vale el enlace de una página donde se ve el vídeo: tiene que ser el del archivo.'));
+      const url = el('input'); url.placeholder = 'https://…/video.mp4'; url.inputMode = 'url';
+      const nombre = el('input'); nombre.placeholder = 'Nombre (opcional: si no, el del archivo del enlace)';
+      const l1 = el('label', null, 'Enlace del archivo'); l1.append(url);
+      const l2 = el('label', null, 'Nombre con el que se guarda'); l2.append(nombre);
+      const dest = el('div', 'destino'); dest.append(el('span', null, 'Se sube a:'), el('code', null, actual));
+      v.append(l1, l2, dest);
+      const lista = el('div', 'registro'); lista.style.maxHeight = '260px';
+      v.append(el('h3', null, 'Subidas desde enlace'), lista);
+      // Cómo van (se pregunta cada 2 s mientras la ventana está abierta)
+      const mb = (n) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB` : `${Math.round(n / 1024 ** 2)} MB`);
+      let habia = new Set();
+      async function pintar() {
+        if (!v.isConnected) return;
+        let ts = [];
+        try { ts = await api('/api/panel/subir/enlaces'); } catch {}
+        lista.innerHTML = '';
+        if (!ts.length) lista.append(el('div', 'vacio', 'Todavía no hay ninguna'));
+        for (const t of ts) {
+          const f = el('div', 'lote');
+          const info = el('div', 'info');
+          const pct = t.total ? Math.min(100, Math.round(t.bajado / t.total * 100)) : null;
+          const seg = Math.max(1, ((t.fin || Date.now()) - t.inicio) / 1000);
+          const dato = t.estado === 'bajando' ? `${mb(t.bajado)}${t.total ? ` de ${mb(t.total)} · ${pct} %` : ''} · ${mb(t.bajado / seg)}/s`
+            : t.estado === 'hecho' ? `✅ Subido (${mb(t.bajado)})` : t.estado === 'cancelada' ? 'Cancelada' : `❌ ${t.error || 'Error'}`;
+          info.append(el('b', null, t.nombre), el('small', null, dato));
+          if (t.estado === 'bajando') { const pr = el('div', 'progreso'); const i = el('i'); i.style.width = `${pct ?? 30}%`; pr.append(i); info.append(pr); }
+          f.append(info);
+          if (t.estado === 'bajando') {
+            const c = el('button', 'boton fino peligro', 'Cancelar');
+            c.onclick = async () => { try { await api('/api/panel/subir/enlace/cancelar', { id: t.id }); } catch (e) { aviso(e.message, 'mal'); } pintar(); };
+            const acc = el('div', 'acciones'); acc.append(c); f.append(acc);
+          }
+          lista.append(f);
+          // Al acabar una que va a la carpeta abierta, se actualiza la lista de archivos
+          if (t.estado === 'hecho' && habia.has(t.id) && t.key.startsWith(actual)) { cargar(); resumen(); }
+        }
+        habia = new Set(ts.filter((t) => t.estado === 'bajando').map((t) => t.id));
+        setTimeout(pintar, 2000);
+      }
+      pintar();
+      botones(v, cerrar, 'Subir a e2', 'primario', async () => {
+        if (!/^https?:\/\//i.test(url.value.trim())) return aviso('Pega un enlace que empiece por https://', 'mal');
+        const b = v.querySelector('.botones .primario'); b.disabled = true; b.textContent = 'Comprobando el enlace…';
+        try {
+          const r = await api('/api/panel/subir/enlace', { url: url.value.trim(), nombre: nombre.value.trim(), carpeta: actual });
+          aviso(`Subiendo «${r.nombre}» desde el enlace`, 'bien');
+          url.value = ''; nombre.value = '';
+          pintar();
+        } catch (e) { aviso(e.message, 'mal'); }
+        b.disabled = false; b.textContent = 'Subir a e2';
+      });
+      url.focus();
+    }, { grande: true });
+  };
+
   // ---------- Avisos del reproductor ----------
   // Mensajes propios (Telegram, novedades, mantenimientos…) que salen en una tarjeta pequeña al
   // empezar un vídeo, en la web, la app y la tele. No son anuncios de nadie.
