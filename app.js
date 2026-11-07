@@ -126,7 +126,7 @@
     document.documentElement.classList.toggle('colaborador', !soyAdmin);
     $('#usuario').textContent = (yo.nombre || yo.usuario) + (soyAdmin ? '' : ' · colaborador');
     // Lo que un colaborador no puede usar, ni se ve
-    ['#b-papelera', '#b-registro', '#b-anuncios', '#b-usdc', '#b-colaboradores', '#b-mantenimiento', '#sel-mover', '#sel-borrar'].forEach((s) => { const b = $(s); if (b) b.hidden = !soyAdmin; });
+    ['#b-papelera', '#b-registro', '#b-anuncios', '#b-usdc', '#b-colaboradores', '#b-mantenimiento', '#b-fichas', '#sel-mover', '#sel-borrar'].forEach((s) => { const b = $(s); if (b) b.hidden = !soyAdmin; });
     if (soyAdmin) api('/api/panel/mantenimiento').then(pintarMantenimiento).catch(() => {});
     $('#vista-entrar').hidden = true; $('#vista-panel').hidden = false;
     $('#ir-web').href = window.MORVEHTV.web;
@@ -531,6 +531,167 @@
   // Cuentas de MorvehTV que pueden entrar al gestor para SUBIR contenido y crear carpetas, solo
   // en las secciones que se les den. No pueden borrar, mover ni ver la papelera, el registro, los
   // anuncios o los pagos. Se quitan cuando se quiera y dejan de poder al momento.
+  // ---------- Fichas a mano ----------
+  // Para lo que no está en ninguna base de datos (o tiene otra numeración de capítulos): título,
+  // sinopsis, cartel, fondo y capítulos escritos a mano. El visor las usa en vez de la búsqueda.
+  const urlImagen = (x) => (!x ? '' : /^https?:\/\//.test(x) ? x : `${API}/fichas/${encodeURIComponent(x)}`);
+  const capitulosATexto = (temps) => Object.keys(temps || {}).sort((a, b) => a - b)
+    .map((t) => [`Temporada ${t}`, ...temps[t].map((e) => [e.numero, e.titulo || '', e.sinopsis || ''].join(' | ').replace(/( \| )+$/, ''))].join('\n')).join('\n\n');
+  function textoACapitulos(texto) {
+    const temps = {}; let t = 1;
+    for (const linea of String(texto).split(/\r?\n/)) {
+      const cab = linea.match(/^\s*(?:temporada|season|t)\s*(\d{1,2})\s*:?\s*$/i);
+      if (cab) { t = Number(cab[1]); continue; }
+      const m = linea.match(/^\s*(?:cap[ií]tulo|episodio|ep\.?|e)?\s*(\d{1,4})\s*(?:[|.):\-–]\s*)?(.*)$/i);
+      if (!m) continue;
+      const partes = m[2].split('|').map((x) => x.trim());
+      (temps[t] = temps[t] || []).push({ numero: Number(m[1]), titulo: partes[0] || '', sinopsis: partes.slice(1).join(' | ') });
+    }
+    return temps;
+  }
+  async function subirImagenFicha({ file, enlace, nombre }) {
+    const r = file
+      ? await fetch(`${API}/api/panel/fichas/imagen?nombre=${encodeURIComponent(nombre || 'imagen')}`, { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': file.type }, body: file })
+      : await fetch(`${API}/api/panel/fichas/imagen`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ url: enlace, nombre }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `Error ${r.status}`);
+    return d.nombre;
+  }
+
+  $('#b-fichas').onclick = () => ventana(async (v, cerrar) => {
+    let datos = { fichas: [], repo: [] };
+    async function pintarLista() {
+      v.innerHTML = '<div class="cargando">Cargando…</div>';
+      try { datos = await api('/api/panel/fichas'); } catch (e) { v.innerHTML = ''; v.append(el('div', 'vacio', e.message)); return; }
+      v.innerHTML = '';
+      v.append(el('h2', null, '✍️ Fichas a mano'), el('p', null, 'Para lo que no está en ninguna base de datos (o tiene otra numeración de capítulos, como las novelas dobladas): escribes el título, la sinopsis, el cartel y los capítulos, y el visor los usa. Se aplican al momento.'));
+      const nueva = el('button', 'boton primario solo', '＋ Nueva ficha'); nueva.onclick = () => pintarFormulario({ tipo: 'pelicula', archivos: [] });
+      v.append(nueva);
+      const lista = el('div', 'registro');
+      const todas = [...datos.fichas.map((f) => ({ ...f, deGestor: true })), ...datos.repo.map((f) => ({ ...f, deGestor: false }))];
+      if (!todas.length) lista.append(el('div', 'vacio', 'Todavía no hay fichas a mano'));
+      for (const f of todas) {
+        const fila = el('div', 'fila-registro');
+        const bot = el('span', 'botones-colab');
+        if (f.deGestor) {
+          const ed = el('button', 'boton fino', 'Editar'); ed.onclick = () => pintarFormulario(f);
+          const bo = el('button', 'boton fino peligro', 'Borrar');
+          bo.onclick = async () => {
+            if (!(await confirmar('Borrar ficha', `El visor volverá a buscar la ficha de «${f.titulo || f.archivos[0]}» en las bases de datos. Los vídeos no se tocan.`, null, 'Borrar', true))) return;
+            try { await api('/api/panel/fichas/borrar', { id: f.id }); aviso('Ficha borrada', 'bien'); } catch (e) { aviso(e.message, 'mal'); }
+            pintarLista();
+          };
+          bot.append(ed, bo);
+        } else bot.append(el('small', null, 'del repositorio'));
+        const caps = Object.values(f.temporadas || {}).reduce((s, x) => s + x.length, 0);
+        fila.append(el('b', null, f.titulo || '(solo capítulos)'), el('span', null, f.archivos.join(' · ')),
+          el('small', null, [f.tipo === 'serie' ? 'Serie' : 'Película', caps && `${caps} capítulos`, f.ficha === false && 'ficha de TMDB'].filter(Boolean).join(' · ')), bot);
+        lista.append(fila);
+      }
+      v.append(lista);
+      const pie = el('div', 'botones'); const c = el('button', 'boton', 'Cerrar'); c.onclick = () => cerrar(null); pie.append(c); v.append(pie);
+    }
+
+    function pintarFormulario(f) {
+      v.innerHTML = '';
+      v.append(el('h2', null, f.id ? `✍️ Editar «${f.titulo || f.archivos[0]}»` : '✍️ Nueva ficha a mano'));
+      const campo = (texto, input, ayuda) => { const l = el('label', null, texto); l.append(input); if (ayuda) l.append(el('small', null, ayuda)); return l; };
+      const entrada = (valor, ph) => { const i = el('input'); i.value = valor ?? ''; if (ph) i.placeholder = ph; return i; };
+      const area = (valor, filas, ph) => { const t = el('textarea'); t.rows = filas; t.value = valor ?? ''; if (ph) t.placeholder = ph; t.className = 'area'; return t; };
+
+      // Para qué vídeo o serie (con lo que hay en la carpeta abierta como sugerencias)
+      const para = entrada((f.archivos || []).join(', '), 'Ej.: Informe Plus Toni Bou 40 de 40 - 2026');
+      para.setAttribute('list', 'fichas-nombres');
+      const dl = el('datalist'); dl.id = 'fichas-nombres';
+      for (const c of listado.carpetas) dl.append(new Option(c.nombre));
+      for (const a of listado.archivos) if (VIDEO.test(a.nombre)) dl.append(new Option(a.nombre.replace(/\.[^.]+$/, '')));
+      v.append(campo('Para (nombre del vídeo, o de la carpeta de la serie, tal cual está en e2)', para, 'Sin la carpeta y sin «.mp4». Te sugiere lo que hay en la carpeta abierta del gestor. Varios nombres: sepáralos con comas.'), dl);
+
+      // Tipo
+      const tipos = el('div', 'colab-secciones');
+      const radio = (valor, texto) => { const l = el('label', 'check'); const r = el('input'); r.type = 'radio'; r.name = 'ficha-tipo'; r.value = valor; r.checked = (f.tipo || 'pelicula') === valor; l.append(r, document.createTextNode(' ' + texto)); tipos.append(l); return r; };
+      radio('pelicula', '🎬 Película o documental'); const rSerie = radio('serie', '📺 Serie o novela');
+      const solo = el('label', 'check'); const cSolo = el('input'); cSolo.type = 'checkbox'; cSolo.checked = f.ficha === false;
+      solo.append(cSolo, document.createTextNode(' Mantener la ficha de TMDB y solo poner los capítulos'));
+      v.append(el('small', null, 'Tipo:'), tipos, solo);
+
+      const titulo = entrada(f.titulo, 'Título que se verá');
+      const anio = entrada(f.anio, '2026'); anio.inputMode = 'numeric'; anio.maxLength = 4;
+      const duracion = entrada(f.duracion, 'Minutos'); duracion.inputMode = 'numeric';
+      const sinopsis = area(f.sinopsis, 4, 'La sinopsis que se verá en la ficha');
+      const generos = entrada((f.generos || []).join(', '), 'Documental, Deportes');
+      const direccion = entrada((f.direccion || []).join(', '));
+      const reparto = entrada((f.reparto || []).join(', '));
+      const web = entrada(f.web, 'https://… (opcional: la página de donde sale la ficha)');
+      const fuente = entrada(f.fuente, 'Nombre de esa web (p. ej. FilmAffinity)');
+      const fila2 = el('div', 'fila-ficha'); fila2.append(campo('Año', anio), campo('Duración (min)', duracion));
+      const datosF = el('div', 'colab-form');
+      datosF.append(campo('Título', titulo), fila2, campo('Sinopsis', sinopsis), campo('Géneros (separados por comas)', generos),
+        campo('Dirección', direccion), campo('Reparto', reparto), campo('Enlace a la ficha original', web), campo('Nombre de la web del enlace', fuente));
+
+      // Imágenes: subir un archivo o pegar un enlace (el servidor la guarda en e2)
+      const imagenes = el('div', 'imagenes-ficha');
+      const valor = { poster: f.poster || null, fondo: f.fondo || null };
+      const caja = (clave, texto, clase) => {
+        const c = el('div', `imagen-ficha ${clase}`);
+        const vista = el('div', 'vista'); const pintarVista = () => { vista.innerHTML = ''; if (valor[clave]) { const im = el('img'); im.src = urlImagen(valor[clave]); im.alt = ''; vista.append(im); } else vista.append(el('span', null, 'Sin imagen')); };
+        pintarVista();
+        const fi = el('input'); fi.type = 'file'; fi.accept = 'image/jpeg,image/png,image/webp'; fi.hidden = true;
+        const bSubir = el('button', 'boton fino', '⬆ Subir'); bSubir.type = 'button'; bSubir.onclick = () => fi.click();
+        const enl = el('input'); enl.placeholder = 'o pega un enlace https a la imagen';
+        const bEnl = el('button', 'boton fino', 'Usar'); bEnl.type = 'button';
+        const bQuitar = el('button', 'boton fino peligro', '✕'); bQuitar.type = 'button'; bQuitar.title = 'Quitar la imagen';
+        const subir = async (o) => {
+          vista.innerHTML = '<span>Subiendo…</span>';
+          try { valor[clave] = await subirImagenFicha({ ...o, nombre: `${titulo.value || para.value} ${clave}` }); enl.value = ''; } catch (e) { aviso(e.message, 'mal'); }
+          pintarVista();
+        };
+        fi.onchange = () => { if (fi.files[0]) subir({ file: fi.files[0] }); fi.value = ''; };
+        bEnl.onclick = () => { if (enl.value.trim()) subir({ enlace: enl.value.trim() }); };
+        bQuitar.onclick = () => { valor[clave] = null; pintarVista(); };
+        const acciones = el('div', 'fila-clave'); acciones.append(enl, bEnl);
+        const b2 = el('div', 'botones-colab'); b2.append(bSubir, bQuitar);
+        c.append(el('small', null, texto), vista, b2, acciones, fi);
+        return c;
+      };
+      imagenes.append(caja('poster', 'Cartel (vertical)', 'vertical'), caja('fondo', 'Fondo (apaisado, opcional)', 'apaisada'));
+
+      // Capítulos
+      const caps = area(capitulosATexto(f.temporadas), 8, 'Temporada 1\n1 | Título del capítulo | Resumen del capítulo\n2 | Título | Resumen\n\nTemporada 2\n1 | …');
+      caps.classList.add('mono');
+      const bloqueCaps = el('div', 'colab-form');
+      bloqueCaps.append(campo('Capítulos', caps, 'Una línea por capítulo: «número | título | resumen» (el título y el resumen son opcionales). «Temporada N» en una línea cambia de temporada. Los capítulos que no pongas salen como «Episodio N».'));
+
+      const anunciar = el('label', 'check'); const cAnun = el('input'); cAnun.type = 'checkbox';
+      anunciar.append(cAnun, document.createTextNode(` 📣 Anunciarla en Telegram al guardar${f.anunciar ? ' (ya se anunció; márcalo para repetir el aviso)' : ''}`));
+
+      v.append(datosF, imagenes, bloqueCaps, anunciar);
+      const actualizar = () => { const serie = rSerie.checked; bloqueCaps.hidden = !serie; solo.hidden = !serie; const s = serie && cSolo.checked; datosF.hidden = s; imagenes.hidden = s; };
+      tipos.addEventListener('change', actualizar); cSolo.onchange = actualizar; actualizar();
+
+      const pie = el('div', 'botones');
+      const volver = el('button', 'boton', 'Volver'); volver.onclick = pintarLista;
+      const guardar = el('button', 'boton primario', 'Guardar ficha');
+      guardar.onclick = async () => {
+        const serie = rSerie.checked;
+        const ficha = {
+          id: f.id, archivos: para.value.split(',').map((x) => x.trim()).filter(Boolean), tipo: serie ? 'serie' : 'pelicula',
+          ficha: serie && cSolo.checked ? false : undefined, titulo: titulo.value, anio: anio.value, duracion: duracion.value, sinopsis: sinopsis.value,
+          generos: generos.value, direccion: direccion.value, reparto: reparto.value, web: web.value, fuente: fuente.value,
+          poster: valor.poster, fondo: valor.fondo, temporadas: serie ? textoACapitulos(caps.value) : {}, anunciar: cAnun.checked,
+        };
+        if (!ficha.archivos.length) return aviso('Escribe para qué vídeo o serie es', 'mal');
+        if (!ficha.titulo.trim() && ficha.ficha !== false) return aviso('Escribe el título', 'mal');
+        guardar.disabled = true;
+        try { await api('/api/panel/fichas/guardar', { ficha }); aviso('Ficha guardada: ya se ve en el visor', 'bien'); pintarLista(); }
+        catch (e) { aviso(e.message, 'mal'); guardar.disabled = false; }
+      };
+      pie.append(volver, guardar); v.append(pie);
+      para.focus();
+    }
+    pintarLista();
+  }, { grande: true, fija: true });
+
   // ---------- Web en mantenimiento ----------
   // Mientras está puesto, en la web, la app y la tele solo se ve la pantalla de mantenimiento;
   // los administradores siguen entrando (por morvehtv.com/entrar.html?admin)

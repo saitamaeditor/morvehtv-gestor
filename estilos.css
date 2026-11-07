@@ -268,3 +268,20 @@ label { display: flex; flex-direction: column; gap: 6px; color: var(--suave); fo
 .fuente:hover { color: var(--texto); border-color: var(--acento); }
 .fuente.activa { background: var(--acento); border-color: var(--acento); color: #fff; }
 .resultado .de-fuente { color: var(--suave); }
+
+/* Fichas a mano */
+textarea.area { width: 100%; padding: 10px 12px; border-radius: 9px; border: 1px solid var(--borde); background: var(--fondo); color: var(--texto); font: inherit; resize: vertical; }
+textarea.area:focus { outline: none; border-color: var(--acento); }
+textarea.mono { font: 13px/1.5 ui-monospace, Consolas, monospace; }
+.fila-ficha { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.imagenes-ficha { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.imagen-ficha { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.imagen-ficha .vista { display: grid; place-items: center; overflow: hidden; border-radius: 9px; background: var(--fondo); border: 1px dashed var(--borde); color: var(--suave); font-size: 13px; }
+.imagen-ficha.vertical .vista { aspect-ratio: 2 / 3; width: 150px; }
+.imagen-ficha.apaisada .vista { aspect-ratio: 16 / 9; width: 100%; max-width: 300px; }
+.imagen-ficha .vista img { width: 100%; height: 100%; object-fit: cover; }
+@media (max-width: 600px) { .imagenes-ficha { grid-template-columns: minmax(0, 1fr); } .imagen-ficha.vertical { max-width: 180px; } }
+
+.ventana label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--texto); font-weight: 600; }
+.ventana label.check input { width: 18px; height: 18px; margin: 0; flex: none; }
+.ventana > .boton.solo { align-self: flex-start; }
