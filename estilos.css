@@ -287,3 +287,6 @@ textarea.mono { font: 13px/1.5 ui-monospace, Consolas, monospace; }
 .ventana > .boton.solo { align-self: flex-start; }
 .acciones-temporadas { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .acciones-temporadas .resumen { flex-basis: 100%; color: var(--suave); font-size: 13px; }
+/* Enlaces de vídeo: idioma y calidad de cada servidor */
+.lote .acciones select { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--borde); background: var(--panel); font-size: 13px; }
+.lote .info small { overflow-wrap: anywhere; }

@@ -223,7 +223,8 @@
     n.append(txt);
     const acc = el('div', 'acciones-fila');
     const accion = (ico, titulo, fn) => { const b = el('button', null, ico); b.title = titulo; b.onclick = fn; acc.append(b); };
-    if (!esCarpeta) {
+    if (!esCarpeta && /\.(url|strm)$/i.test(nombre)) accion('🎞', 'Editar enlaces (servidores, idioma, orden)', () => ventanaEnlaces(key));
+    else if (!esCarpeta) {
       accion('▶', 'Ver o escuchar', () => abrirEnlace(key, false));
       accion('⬇', 'Descargar', () => abrirEnlace(key, true));
     }
@@ -595,49 +596,90 @@
   };
 
   // ---------- Enlaces de vídeo (Voe, Streamwish, Filelions…) ----------
-  // Pegas los enlaces o los códigos <iframe> de un título; el servidor reconoce cada servidor,
-  // los deja limpios y guarda un «.url» en la carpeta abierta. En la web sale una fila
-  // «Servidor» para cambiar de uno a otro (el primero es el principal).
+  // Pegas los enlaces o los códigos <iframe> de un título; el servidor reconoce cada servidor, su
+  // idioma y calidad si se dicen («Latino: …», «CASTELLANO 1080p»), y los deja limpios. Aquí se
+  // ordenan, se quitan, se les cambia el idioma o la calidad y se prueban; al guardar se crea (o
+  // se reescribe) un «.url». En la web sale una fila «Servidor» para cambiar de uno a otro.
+  const IDIOMAS_ENL = ['Castellano', 'Latino', 'Subtitulado', 'Inglés', 'Dual'];
+  const CALIDADES_ENL = ['4K', '1080p', '720p', '480p'];
   $('#b-servidores').onclick = () => {
     if (!actual || actual.split('/').length < 2) return aviso('Entra primero en la carpeta donde quieres guardarlo', 'mal');
+    ventanaEnlaces();
+  };
+  async function ventanaEnlaces(editar = null) {
+    let previos = [];
+    if (editar) {
+      try { previos = (await api('/api/panel/enlaces-video/leer', { key: editar })).enlaces; } catch (e) { return aviso(e.message, 'mal'); }
+    }
+    const carpeta = editar ? padreDe(editar) : actual;
     ventana((v, cerrar) => {
-      v.append(el('h2', null, '🎞 Enlaces de vídeo'),
-        el('p', null, 'Pega los enlaces del vídeo (Voe, Streamwish, Filelions, Byse, Doodstream…) o sus códigos <iframe>, uno por línea. El primero es el principal; los demás salen como servidores de reserva para cambiar si uno falla.'));
+      v.append(el('h2', null, editar ? '🎞 Editar enlaces' : '🎞 Enlaces de vídeo'),
+        el('p', null, 'Pega los enlaces del vídeo (Voe, Streamwish, Filelions, Byse, Doodstream…) o sus códigos <iframe>. Si escribes el idioma o la calidad junto a ellos («Latino: https://…», o «CASTELLANO 1080p» encima de varios) se ponen solos. El primero de la lista es el principal; los demás salen como servidores de reserva.'));
       const nombre = el('input'); nombre.placeholder = 'Título - Año (p. ej. «Película - 2026»)';
-      const texto = el('textarea'); texto.rows = 7; texto.placeholder = 'https://voe.sx/…\n<iframe src="https://streamwish.to/e/…"></iframe>\nhttps://filelions.to/v/…';
+      if (editar) { nombre.value = nombreDe(editar).replace(/\.(url|strm)$/i, ''); nombre.disabled = true; nombre.title = 'Para cambiar el nombre usa ✎ Renombrar en la lista de archivos'; }
+      const texto = el('textarea'); texto.rows = 4; texto.placeholder = 'LATINO:\nhttps://voe.sx/…\n<iframe src="https://streamwish.to/e/…"></iframe>\nCastellano 1080p: https://filelions.to/v/…';
       texto.style.cssText = 'width:100%;box-sizing:border-box;font:inherit;font-size:.9em;resize:vertical';
+      const anadir = el('button', 'boton', '＋ Añadir a la lista');
       const l1 = el('label', null, 'Nombre'); l1.append(nombre);
-      const l2 = el('label', null, 'Enlaces o códigos iframe'); l2.append(texto);
-      const dest = el('div', 'destino'); dest.append(el('span', null, 'Se guarda en:'), el('code', null, actual));
-      const vista = el('div', 'registro'); vista.style.maxHeight = '220px';
-      v.append(l1, l2, el('h3', null, 'Reconocidos'), vista, dest);
-      // Lo que reconoce el servidor, al momento mientras se pega o escribe
-      let reloj, turno = 0, cuantos = 0;
-      const repasar = () => {
-        clearTimeout(reloj);
-        reloj = setTimeout(async () => {
-          const mio = ++turno;
-          let r = { enlaces: [] };
-          if (texto.value.trim()) { try { r = await api('/api/panel/enlaces-video', { texto: texto.value, vista: true }); } catch (e) { aviso(e.message, 'mal'); } }
-          if (mio !== turno) return;
-          cuantos = r.enlaces.length;
-          vista.innerHTML = '';
-          if (!cuantos) vista.append(el('div', 'vacio', texto.value.trim() ? 'Ningún enlace válido' : 'Pega los enlaces arriba'));
-          r.enlaces.forEach((x, n) => {
-            const f = el('div', 'lote'); const info = el('div', 'info');
-            info.append(el('b', null, `${n + 1}. ${x.servidor}${n === 0 ? ' (principal)' : ''}${x.conocido === false ? ' · servidor no reconocido: se abre tal cual' : ''}`), el('small', null, x.url));
-            f.append(info); vista.append(f);
-          });
-        }, 300);
+      const l2 = el('label', null, editar ? 'Añadir más enlaces' : 'Enlaces o códigos iframe'); l2.append(texto);
+      const lista = el('div', 'registro'); lista.style.maxHeight = '300px';
+      const dest = el('div', 'destino'); dest.append(el('span', null, 'Se guarda en:'), el('code', null, carpeta));
+      v.append(l1, l2, anadir, el('h3', null, 'Servidores del título'), lista, dest);
+
+      const enlaces = previos.map((x) => ({ ...x }));
+      const desplegable = (opciones, valor, vacio, alCambiar) => {
+        const s = el('select'); s.append(Object.assign(el('option', null, vacio), { value: '' }));
+        for (const o of opciones) s.append(Object.assign(el('option', null, o), { value: o, selected: o === valor }));
+        s.onchange = () => alCambiar(s.value || null);
+        return s;
       };
-      texto.oninput = repasar;
-      repasar();
+      function pintar() {
+        lista.innerHTML = '';
+        if (!enlaces.length) lista.append(el('div', 'vacio', 'Pega enlaces arriba y pulsa «Añadir a la lista»'));
+        enlaces.forEach((x, n) => {
+          const f = el('div', 'lote'); const info = el('div', 'info');
+          info.append(el('b', null, `${n + 1}. ${x.servidor}${n === 0 ? ' (principal)' : ''}${x.conocido === false ? ' · no reconocido: se abre tal cual' : ''}`), el('small', null, x.url));
+          const acc = el('div', 'acciones');
+          acc.append(desplegable(IDIOMAS_ENL, x.idioma, 'Idioma…', (val) => { x.idioma = val; }),
+            desplegable(CALIDADES_ENL, x.calidad, 'Calidad…', (val) => { x.calidad = val; }));
+          const boton = (ico, titulo, fn, desactivado) => { const b = el('button', 'boton fino', ico); b.title = titulo; b.disabled = !!desactivado; b.onclick = fn; acc.append(b); };
+          boton('↑', 'Subir (el primero es el principal)', () => { [enlaces[n - 1], enlaces[n]] = [enlaces[n], enlaces[n - 1]]; pintar(); }, n === 0);
+          boton('↓', 'Bajar', () => { [enlaces[n + 1], enlaces[n]] = [enlaces[n], enlaces[n + 1]]; pintar(); }, n === enlaces.length - 1);
+          boton('▶', 'Probar en una pestaña nueva', () => window.open(x.url, '_blank', 'noopener'));
+          boton('✕', 'Quitar de la lista', () => { enlaces.splice(n, 1); pintar(); });
+          f.append(info, acc); lista.append(f);
+        });
+      }
+      // Lo pegado se analiza en el servidor (el mismo detector que usa la web) y se añade al final
+      async function anadirTexto() {
+        if (!texto.value.trim()) return 0;
+        let r;
+        try { r = await api('/api/panel/enlaces-video', { texto: texto.value, vista: true }); } catch (e) { aviso(e.message, 'mal'); return -1; }
+        let nuevos = 0, repetidos = 0;
+        for (const x of r.enlaces) {
+          if (enlaces.some((y) => y.url === x.url)) { repetidos++; continue; }
+          enlaces.push(x); nuevos++;
+        }
+        if (!r.enlaces.length) aviso('No se ha reconocido ningún enlace en el texto', 'mal');
+        else if (repetidos) aviso(`${nuevos} añadido${nuevos === 1 ? '' : 's'}; ${repetidos} ya estaba${repetidos === 1 ? '' : 'n'} en la lista`);
+        texto.value = '';
+        pintar();
+        return nuevos;
+      }
+      anadir.onclick = anadirTexto;
+      texto.onpaste = () => setTimeout(anadirTexto, 50); // al pegar se añaden solos
+      pintar();
+
       const guardar = async (reemplazar) => {
+        if (await anadirTexto() < 0) return;
         if (!limpiar(nombre.value)) return aviso('Escribe el nombre del título', 'mal');
-        if (!cuantos) return aviso('No hay ningún enlace válido', 'mal');
+        if (!enlaces.length) return aviso('No hay ningún enlace en la lista', 'mal');
         const b = v.querySelector('.botones .primario'); b.disabled = true;
         try {
-          const r = await api('/api/panel/enlaces-video', { texto: texto.value, nombre: limpiar(nombre.value), carpeta: actual, reemplazar });
+          const r = await api('/api/panel/enlaces-video', {
+            enlaces: enlaces.map(({ url, idioma, calidad }) => ({ url, idioma, calidad })),
+            nombre: limpiar(nombre.value), carpeta, reemplazar: reemplazar || !!editar,
+          });
           aviso(`Guardado «${nombreDe(r.key)}» con ${r.enlaces} servidor${r.enlaces === 1 ? '' : 'es'}`, 'bien');
           cerrar(true); cargar(); resumen();
         } catch (e) {
@@ -647,9 +689,9 @@
         }
       };
       botones(v, cerrar, 'Guardar', 'primario', () => guardar(false));
-      nombre.focus();
-    }, { grande: true });
-  };
+      (editar ? texto : nombre).focus();
+    }, { grande: true, fija: true });
+  }
 
   // ---------- Avisos del reproductor ----------
   // Mensajes propios (Telegram, novedades, mantenimientos…) que salen en una tarjeta pequeña al
