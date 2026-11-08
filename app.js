@@ -594,6 +594,63 @@
     }, { grande: true });
   };
 
+  // ---------- Enlaces de vídeo (Voe, Streamwish, Filelions…) ----------
+  // Pegas los enlaces o los códigos <iframe> de un título; el servidor reconoce cada servidor,
+  // los deja limpios y guarda un «.url» en la carpeta abierta. En la web sale una fila
+  // «Servidor» para cambiar de uno a otro (el primero es el principal).
+  $('#b-servidores').onclick = () => {
+    if (!actual || actual.split('/').length < 2) return aviso('Entra primero en la carpeta donde quieres guardarlo', 'mal');
+    ventana((v, cerrar) => {
+      v.append(el('h2', null, '🎞 Enlaces de vídeo'),
+        el('p', null, 'Pega los enlaces del vídeo (Voe, Streamwish, Filelions, Byse, Doodstream…) o sus códigos <iframe>, uno por línea. El primero es el principal; los demás salen como servidores de reserva para cambiar si uno falla.'));
+      const nombre = el('input'); nombre.placeholder = 'Título - Año (p. ej. «Película - 2026»)';
+      const texto = el('textarea'); texto.rows = 7; texto.placeholder = 'https://voe.sx/…\n<iframe src="https://streamwish.to/e/…"></iframe>\nhttps://filelions.to/v/…';
+      texto.style.cssText = 'width:100%;box-sizing:border-box;font:inherit;font-size:.9em;resize:vertical';
+      const l1 = el('label', null, 'Nombre'); l1.append(nombre);
+      const l2 = el('label', null, 'Enlaces o códigos iframe'); l2.append(texto);
+      const dest = el('div', 'destino'); dest.append(el('span', null, 'Se guarda en:'), el('code', null, actual));
+      const vista = el('div', 'registro'); vista.style.maxHeight = '220px';
+      v.append(l1, l2, el('h3', null, 'Reconocidos'), vista, dest);
+      // Lo que reconoce el servidor, al momento mientras se pega o escribe
+      let reloj, turno = 0, cuantos = 0;
+      const repasar = () => {
+        clearTimeout(reloj);
+        reloj = setTimeout(async () => {
+          const mio = ++turno;
+          let r = { enlaces: [] };
+          if (texto.value.trim()) { try { r = await api('/api/panel/enlaces-video', { texto: texto.value, vista: true }); } catch (e) { aviso(e.message, 'mal'); } }
+          if (mio !== turno) return;
+          cuantos = r.enlaces.length;
+          vista.innerHTML = '';
+          if (!cuantos) vista.append(el('div', 'vacio', texto.value.trim() ? 'Ningún enlace válido' : 'Pega los enlaces arriba'));
+          r.enlaces.forEach((x, n) => {
+            const f = el('div', 'lote'); const info = el('div', 'info');
+            info.append(el('b', null, `${n + 1}. ${x.servidor}${n === 0 ? ' (principal)' : ''}`), el('small', null, x.url));
+            f.append(info); vista.append(f);
+          });
+        }, 300);
+      };
+      texto.oninput = repasar;
+      repasar();
+      const guardar = async (reemplazar) => {
+        if (!limpiar(nombre.value)) return aviso('Escribe el nombre del título', 'mal');
+        if (!cuantos) return aviso('No hay ningún enlace válido', 'mal');
+        const b = v.querySelector('.botones .primario'); b.disabled = true;
+        try {
+          const r = await api('/api/panel/enlaces-video', { texto: texto.value, nombre: limpiar(nombre.value), carpeta: actual, reemplazar });
+          aviso(`Guardado «${nombreDe(r.key)}» con ${r.enlaces} servidor${r.enlaces === 1 ? '' : 'es'}`, 'bien');
+          cerrar(true); cargar(); resumen();
+        } catch (e) {
+          b.disabled = false;
+          if (e.status === 409 && await confirmar('Ya existe', `${e.message}. ¿Lo sustituyes por estos enlaces?`, null, 'Sustituir')) return guardar(true);
+          if (e.status !== 409) aviso(e.message, 'mal');
+        }
+      };
+      botones(v, cerrar, 'Guardar', 'primario', () => guardar(false));
+      nombre.focus();
+    }, { grande: true });
+  };
+
   // ---------- Avisos del reproductor ----------
   // Mensajes propios (Telegram, novedades, mantenimientos…) que salen en una tarjeta pequeña al
   // empezar un vídeo, en la web, la app y la tele. No son anuncios de nadie.
