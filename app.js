@@ -625,7 +625,7 @@
           if (!cuantos) vista.append(el('div', 'vacio', texto.value.trim() ? 'Ningún enlace válido' : 'Pega los enlaces arriba'));
           r.enlaces.forEach((x, n) => {
             const f = el('div', 'lote'); const info = el('div', 'info');
-            info.append(el('b', null, `${n + 1}. ${x.servidor}${n === 0 ? ' (principal)' : ''}`), el('small', null, x.url));
+            info.append(el('b', null, `${n + 1}. ${x.servidor}${n === 0 ? ' (principal)' : ''}${x.conocido === false ? ' · servidor no reconocido: se abre tal cual' : ''}`), el('small', null, x.url));
             f.append(info); vista.append(f);
           });
         }, 300);
