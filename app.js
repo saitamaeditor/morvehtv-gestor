@@ -638,7 +638,7 @@
         if (!enlaces.length) lista.append(el('div', 'vacio', 'Pega enlaces arriba y pulsa «Añadir a la lista»'));
         enlaces.forEach((x, n) => {
           const f = el('div', 'lote'); const info = el('div', 'info');
-          info.append(el('b', null, `${n + 1}. ${x.servidor}${n === 0 ? ' (principal)' : ''}${x.conocido === false ? ' · no reconocido: se abre tal cual' : ''}`), el('small', null, x.url));
+          info.append(el('b', null, `${n + 1}. ${x.servidor}${n === 0 ? ' (principal)' : ''}${x.conocido === false ? ' · no reconocido: se abre tal cual' : ''}${x.detectado ? ' · ✨ idioma/calidad detectados: revísalos' : ''}`), el('small', null, x.url));
           const acc = el('div', 'acciones');
           acc.append(desplegable(IDIOMAS_ENL, x.idioma, 'Idioma…', (val) => { x.idioma = val; }),
             desplegable(CALIDADES_ENL, x.calidad, 'Calidad…', (val) => { x.calidad = val; }));
@@ -667,6 +667,28 @@
         return nuevos;
       }
       anadir.onclick = anadirTexto;
+      // Busca el idioma y la calidad de los que aún no los tienen (en su dirección y en el título
+      // de la página del reproductor); lo ya puesto no se toca
+      const detectar = el('button', 'boton', '🔎 Detectar idioma y calidad');
+      detectar.onclick = async () => {
+        const faltan = enlaces.filter((x) => !x.idioma || !x.calidad);
+        if (!faltan.length) return aviso('Todos tienen ya idioma y calidad');
+        detectar.disabled = true; detectar.textContent = 'Mirando cada reproductor…';
+        try {
+          const r = await api('/api/panel/enlaces-video', { enlaces: faltan.map(({ url, idioma, calidad }) => ({ url, idioma, calidad })), vista: true });
+          let cambios = 0;
+          r.enlaces.forEach((d, n) => {
+            const x = faltan[n];
+            if (!x) return;
+            if (!x.idioma && d.idioma) { x.idioma = d.idioma; x.detectado = true; cambios++; }
+            if (!x.calidad && d.calidad) { x.calidad = d.calidad; x.detectado = true; cambios++; }
+          });
+          aviso(cambios ? `Detectado en ${faltan.filter((x) => x.detectado).length} enlace(s): revísalo antes de guardar` : 'No se ha podido saber: ponlo a mano con los desplegables', cambios ? 'bien' : '');
+        } catch (e) { aviso(e.message, 'mal'); }
+        detectar.disabled = false; detectar.textContent = '🔎 Detectar idioma y calidad';
+        pintar();
+      };
+      anadir.after(detectar);
       texto.onpaste = () => setTimeout(anadirTexto, 50); // al pegar se añaden solos
       pintar();
 
@@ -1167,6 +1189,26 @@
 
   // ---------- Añadir título: buscarlo (por nombre o IMDb), elegir carpeta y un archivo por capítulo ----------
   const seguro = (t) => String(t ?? '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 90);
+  // Idiomas que dice el nombre de un archivo, en su orden («Dual Lat-Ing» → Latino, Inglés), con
+  // los mismos nombres que reconoce el reproductor de la web. «Latino» va antes que «español».
+  const PALABRAS_IDIOMA_ARCHIVO = [
+    ['Latino', /latin|latam|^lat$|es[-_ ]?419|m[eé]xic|hispanoam/i],
+    ['Castellano', /castellano|castilian|espa[ñn]a|^spain$|espa[ñn]ol|spanish|^esp$|^spa$|^cast$/i],
+    ['Inglés', /ingl[eé]s|english|^eng?$|^ing$|^vose?$|^v\.?o\.?s\.?e?\.?$/i],
+    ['Francés', /franc[eé]s|french|fran[cç]ais/i], ['Italiano', /italian/i], ['Alemán', /alem[aá]n|german|deutsch/i],
+    ['Portugués', /portugu[eé]s|portuguese/i], ['Japonés', /japon[eé]s|japanese/i], ['Coreano', /coreano|korean/i],
+    ['Catalán', /catal[aà]n?/i], ['Turco', /turco|turkish/i],
+  ];
+  function idiomasDeArchivo(nombre) {
+    const lista = [];
+    const sinExt = String(nombre || '').replace(/\.[^.]+$/, '');
+    for (const trozo of sinExt.split(/[\s._\-+()[\]{},]+/)) {
+      const i = (PALABRAS_IDIOMA_ARCHIVO.find(([, re]) => re.test(trozo)) || [])[0];
+      if (i && !lista.includes(i)) lista.push(i);
+    }
+    return lista.slice(0, 4);
+  }
+  const sufijoIdioma = (nombre) => { const l = idiomasDeArchivo(nombre); return l.length ? ` [${l.join('-')}]` : ''; };
   const dos = (n) => String(n).padStart(2, '0');
   const ext = (n) => (n.match(/\.(\w+)$/)?.[1] ?? 'mp4').toLowerCase();
   // Número de capítulo que trae el nombre del archivo: «S01E02», «1x02», «E02», «Capítulo 2», «- 02 -»
@@ -1259,9 +1301,11 @@
       const serie = ficha.tipo === 'serie';
       const base = seguro(`${ficha.titulo}${ficha.anio ? ` - ${ficha.anio}` : ''}`);
       const carpetaDe = (t) => (serie ? `${seccion}${base}/Temporada ${t}/` : seccion);
+      // El idioma que dijera el nombre original («…LATINO.1080p.mkv», «Dual Cast-Ing») se
+      // conserva entre corchetes: el reproductor lo usa para llamar a cada pista de audio
       const nombreDe = (t, ep, file) => (serie
-        ? `${seguro(ficha.titulo)} - S${dos(t)}E${dos(ep.numero)}${ep.titulo ? ` - ${seguro(ep.titulo)}` : ''}.${ext(file.name)}`
-        : `${base}.${ext(file.name)}`);
+        ? `${seguro(ficha.titulo)} - S${dos(t)}E${dos(ep.numero)}${ep.titulo ? ` - ${seguro(ep.titulo)}` : ''}${sufijoIdioma(file.name)}.${ext(file.name)}`
+        : `${base}${sufijoIdioma(file.name)}.${ext(file.name)}`);
 
       v.innerHTML = '';
       // Cabecera con el cartel
