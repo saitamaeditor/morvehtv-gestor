@@ -43,6 +43,9 @@
     red: '<circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><path d="M12 8v3M12 11l-5.5 5.5M12 11l5.5 5.5"/>',
     moneda: '<circle cx="12" cy="12" r="9"/><path d="M14.8 9A3 3 0 0 0 12 7.5c-1.7 0-3 1-3 2.3 0 3 6 1.5 6 4.4 0 1.3-1.3 2.3-3 2.3a3 3 0 0 1-2.8-1.5M12 6v1.5M12 16.5V18"/>',
     menos: '<path d="M5 12h14"/>',
+    subir: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/>',
+    carpeta: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    archivo: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
   };
   const ico = (n, clase = '') => { const s = el('span', `ico ${clase}`); s.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TRAZOS[n] ?? ''}</svg>`; return s; };
   const boton = (texto, clase = '', icono = null, titulo = null) => {
@@ -224,13 +227,15 @@
   let revs = [];         // revendedores que puedo gestionar
   let vista = 'resumen';
   let rol = 'admin';     // admin, super o revendedor
+  let e2Activo = false;  // el servidor tiene las claves de e2 (para «Subir»)
   const filtros = { estado: 'todas', busca: '', orden: 'nombre', sube: true, dueno: '' };
   const TODAS_VISTAS = {
     resumen: { titulo: 'Resumen', sub: 'Cómo está tu servidor de un vistazo', icono: 'resumen' },
     cuentas: { titulo: 'Cuentas', sub: 'Crea, renueva y controla quién entra en tu Emby', icono: 'cuentas' },
     revendedores: { titulo: 'Revendedores', sub: 'Quién vende cuentas y cuántos créditos tiene', icono: 'red' },
     directo: { titulo: 'En directo', sub: 'Lo que se está viendo ahora mismo', icono: 'directo' },
-    actividad: { titulo: 'Actividad', sub: 'Todo lo que se ha hecho desde este panel', icono: 'actividad' },
+    subir: { titulo: 'Subir', sub: 'Sube películas y series a e2, ya con el nombre que entiende Emby', icono: 'subir' },
+    actividad:{ titulo: 'Actividad', sub: 'Todo lo que se ha hecho desde este panel', icono: 'actividad' },
   };
   let VISTAS = TODAS_VISTAS;
   const NOMBRE_ROL = { admin: 'Administrador', super: 'Superrevendedor', revendedor: 'Revendedor' };
@@ -246,7 +251,9 @@
       return;
     }
     rol = yo.rol;
-    VISTAS = Object.fromEntries(Object.entries(TODAS_VISTAS).filter(([k]) => k !== 'revendedores' || rol !== 'revendedor'));
+    // «Subir» es solo para administradores (el servidor también lo comprueba)
+    VISTAS = Object.fromEntries(Object.entries(TODAS_VISTAS).filter(([k]) => (k !== 'revendedores' || rol !== 'revendedor') && (k !== 'subir' || rol === 'admin')));
+    e2Activo = Boolean(yo.e2);
     if (rol !== 'admin') { VISTAS.cuentas = { ...VISTAS.cuentas, sub: 'Tus clientes: crea, renueva y controla sus cuentas' }; VISTAS.actividad = { ...VISTAS.actividad, sub: 'Tus movimientos de créditos y cuentas' }; }
     if (rol === 'super') VISTAS.revendedores = { ...VISTAS.revendedores, sub: 'Tus revendedores: dales créditos y controla lo que venden' };
     filtros.dueno = '';
@@ -311,7 +318,7 @@
         rol === 'revendedor' ? [] : api('/api/panel/emby/revendedores').catch(() => []),
       ]);
       d = res;
-      actividad = (Array.isArray(reg) ? reg : []).filter((x) => esRevendedor() || /emby|revendedor|créditos/i.test(x.accion));
+      actividad = (Array.isArray(reg) ? reg : []).filter((x) => esRevendedor() || /emby|revendedor|créditos|e2/i.test(x.accion));
       revs = Array.isArray(rv) ? rv : [];
     } catch (e) {
       if (callado && d) return;
@@ -325,7 +332,7 @@
     }
     pintarMenu();
     // Si estás escribiendo o con una ventana abierta, no se toca la vista (solo el menú)
-    if (callado && (pila.length || document.activeElement?.matches('input, textarea') || menuAbierto)) return;
+    if (callado && (pila.length || document.activeElement?.matches('input, textarea, select') || menuAbierto || vista === 'subir')) return;
     pintar();
   }
   // Se actualiza solo: cada 15 s en «En directo», cada minuto en lo demás
@@ -344,9 +351,10 @@
     const t = el('div', 'cab-texto'); t.append(el('h1', null, x.titulo), el('p', null, x.sub));
     const acc = el('div', 'cab-acciones');
     const rec = boton(null, 'icono', 'recargar', 'Actualizar');
-    rec.onclick = async () => { rec.classList.add('girando'); await actualizar(); };
+    rec.onclick = async () => { rec.classList.add('girando'); if (vista === 'subir') { sub.raiz = null; sub.subcarpetas = {}; pintar(); return; } await actualizar(); };
     acc.append(rec);
-    if (vista === 'revendedores') { const n = boton('Nuevo revendedor', 'primario', 'mas'); n.onclick = () => fichaRevendedor(); acc.append(n); }
+    if (vista === 'subir') { /* sin botón de nueva cuenta */ }
+    else if (vista === 'revendedores') { const n = boton('Nuevo revendedor', 'primario', 'mas'); n.onclick = () => fichaRevendedor(); acc.append(n); }
     else if (d?.configurado) { const n = boton('Nueva cuenta', 'primario', 'mas'); n.onclick = () => fichaCuenta(null); acc.append(n); }
     c.append(t, acc);
     return c;
@@ -357,6 +365,7 @@
     const scroll = window.scrollY;
     v.innerHTML = '';
     v.append(cabecera());
+    if (vista === 'subir') { vistaSubir(v); window.scrollTo(0, mantenerScroll ? scroll : 0); return; }
     if (!d) { v.append(esqueleto()); return; }
     if (!d.configurado) { v.append(sinConfigurar()); return; }
     ({ resumen: vistaResumen, cuentas: vistaCuentas, revendedores: vistaRevendedores, directo: vistaDirecto, actividad: vistaActividad })[vista](v);
@@ -661,6 +670,350 @@
       t.cuerpo.append(f);
     }
     v.append(t.caja);
+  }
+
+  // ---------- Subir a e2 (solo administradores) ----------
+  // El archivo va por trozos directamente del navegador a e2: el servidor solo firma la dirección
+  // de cada trozo. Los nombres se ponen como los entiende Emby:
+  //   Película → CARPETA/Título (Año)/Título (Año).mkv
+  //   Serie    → CARPETA/Serie (Año)/Temporada 1/Serie - S01E02 - Título.mkv
+  const sub = { tipo: 'pelicula', carpeta: '', titulo: '', ano: '', serie: '', temporada: '1', otra: '', archivos: [], cola: [], raiz: null, subcarpetas: {}, error: '' };
+  const VIDEO = /\.(mkv|mp4|m4v|avi|mov|webm|ts|m2ts|wmv|mpg|mpeg)$/i;
+  const SUBTITULO = /\.(srt|ass|ssa|vtt|sub|idx|sup)$/i;
+  const extension = (n) => (/\.[^.]+$/.exec(n)?.[0] ?? '').toLowerCase();
+  const sinExt = (n) => n.replace(/\.[^.]+$/, '');
+  // Quita lo que no admiten las rutas (y lo que confunde a Emby) y deja un solo espacio
+  const limpio = (s) => String(s ?? '').normalize('NFC').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/^\.+|\.+$/g, '');
+  const gb = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(2)} GB` : `${Math.max(0.1, b / 1048576).toFixed(1)} MB`);
+
+  // Desde la primera etiqueta de calidad o idioma hasta el final sobra («1080p.WEB-DL.x264»…)
+  const CALIDAD = /\b(2160p|1080p|720p|480p|4k|uhd|x264|x265|h\.?264|h\.?265|hevc|web-?dl|web-?rip|bluray|bdrip|brrip|hdrip|dvdrip|castellano|latino|dual|vose?)\b.*$/i;
+  // «La mangosta - 2026 [castellano].mkv», «The.Bow.2005.1080p.mkv»… → { titulo, ano }
+  function leerPelicula(nombre) {
+    let t = sinExt(nombre).replace(/\[[^\]]*\]/g, ' ');
+    if (!/\s/.test(t)) t = t.replace(/[._]+/g, ' ');
+    const anos = [...t.matchAll(/(?:^|[\s(.\-])((?:19|20)\d{2})(?=$|[\s).\-])/g)];
+    const m = anos.at(-1);
+    const ano = m ? m[1] : '';
+    if (m) t = t.slice(0, m.index + m[0].indexOf(m[1]));
+    t = t.replace(CALIDAD, '').replace(/[\s(\-–]+$/, '');
+    // «La mangosta (The Mongoose)» → «La mangosta»: el título alternativo estorba a la búsqueda de Emby
+    t = t.replace(/\s*\([^()]*\)\s*$/, '');
+    return { titulo: limpio(t.replace(/[\s(\-–]+$/, '')), ano };
+  }
+  // «Fernando - S01E02 - No sé qué decir.mp4», «serie.1x02.mkv» → { s, e, resto, serie }
+  function leerEpisodio(nombre) {
+    const t = sinExt(nombre);
+    const m = /[Ss](\d{1,2})[ ._-]?[Ee](\d{1,4})|(?:^|[^\d])(\d{1,2})x(\d{2,3})(?!\d)/.exec(t);
+    if (!m) return null;
+    const s = Number(m[1] ?? m[3]); const e = Number(m[2] ?? m[4]);
+    let resto = t.slice(m.index + m[0].length).replace(/\[[^\]]*\]/g, ' ');
+    if (!/\s/.test(resto.trim())) resto = resto.replace(/[._]+/g, ' ');
+    resto = limpio(resto.replace(CALIDAD, '').replace(/^[\s._\-–]+|[\s._\-–]+$/g, ''));
+    const serie = limpio(t.slice(0, m.index).replace(/[._]+/g, ' ').replace(/[\s\-–]+$/, ''));
+    return { s, e, resto, serie };
+  }
+  const dos = (n) => String(n).padStart(2, '0');
+
+  // La ruta en e2 de cada archivo según lo que hay en el formulario
+  function rutaDe(a) {
+    if (a.editada) return a.ruta;
+    const c = sub.carpeta; const ext = extension(a.file.name);
+    if (!c) return '';
+    if (sub.tipo === 'pelicula') {
+      const base = `${limpio(sub.titulo) || 'Sin título'}${/^\d{4}$/.test(sub.ano) ? ` (${sub.ano})` : ''}`;
+      if (VIDEO.test(a.file.name)) return `${c}/${base}/${base}${ext}`;
+      if (SUBTITULO.test(a.file.name)) { const idioma = /\.(es|spa|en|eng|forced)\.[^.]+$/i.exec(a.file.name)?.[1]; return `${c}/${base}/${base}${idioma ? `.${idioma.toLowerCase()}` : ''}${ext}`; }
+      return `${c}/${base}/${limpio(a.file.name)}`;
+    }
+    if (sub.tipo === 'serie') {
+      const carpetaSerie = limpio(sub.serie) || 'Sin nombre';
+      const nombreSerie = carpetaSerie.replace(/\s*\((19|20)\d{2}\)$/, '');
+      const ep = leerEpisodio(a.file.name);
+      const temp = ep ? ep.s : Number(sub.temporada) || 1;
+      const archivo = ep ? `${nombreSerie} - S${dos(ep.s)}E${dos(ep.e)}${ep.resto ? ` - ${ep.resto}` : ''}${ext}` : limpio(a.file.name);
+      return `${c}/${carpetaSerie}/Temporada ${temp}/${archivo}`;
+    }
+    return [c, ...String(sub.otra).split('/').map(limpio).filter(Boolean), limpio(a.file.name)].join('/');
+  }
+
+  async function cargarCarpetas() {
+    try {
+      sub.raiz = (await api('/api/panel/e2/carpetas')).carpetas;
+      if (!sub.carpeta || !sub.raiz.includes(sub.carpeta)) sub.carpeta = sub.raiz.find((c) => /^PELICULAS$/i.test(c)) ?? sub.raiz[0] ?? '';
+      sub.error = '';
+    } catch (e) { sub.raiz = []; sub.error = e.message; }
+    if (vista === 'subir') pintar();
+  }
+  async function cargarSubcarpetas(c) {
+    if (!c || sub.subcarpetas[c]) return;
+    sub.subcarpetas[c] = [];
+    try { sub.subcarpetas[c] = (await api(`/api/panel/e2/carpetas?en=${encodeURIComponent(c)}`)).carpetas; } catch {}
+    const dl = $('#series-e2'); if (dl && sub.carpeta === c) { dl.innerHTML = ''; for (const x of sub.subcarpetas[c]) { const o = el('option'); o.value = x; dl.append(o); } }
+  }
+
+  function vistaSubir(v) {
+    if (!e2Activo) {
+      const c = el('div', 'tarjeta vacia');
+      c.append(ico('subir', 'grande tono-acento'), el('h3', null, 'La subida a e2 no está activada'),
+        el('p', null, 'El servidor del panel todavía no tiene las claves de e2. Se cogen solas del montaje de rclone de la VPS al volver a lanzar el instalador de MorvehTV Cuentas.'));
+      v.append(c); return;
+    }
+    if (sub.raiz === null) { v.append(esqueleto()); cargarCarpetas(); return; }
+    if (sub.error) {
+      const f = el('div', 'tarjeta fallo'); f.append(ico('alerta', 'tono-mal'));
+      const t = el('div'); t.append(el('b', null, 'No se pudo leer e2'), el('span', null, sub.error)); f.append(t);
+      const r = boton('Reintentar', '', 'recargar'); r.onclick = () => { sub.raiz = null; pintar(); }; f.append(r);
+      v.append(f); return;
+    }
+    const rejilla = el('div', 'rejilla-subir');
+    rejilla.append(formularioSubir(), colaSubir());
+    v.append(rejilla);
+  }
+
+  function formularioSubir() {
+    const t = tarjeta('Qué vas a subir', 'subir');
+    const f = t.cuerpo; f.classList.add('form-subir');
+    const tipos = el('div', 'segmentos');
+    for (const [k, txt] of [['pelicula', 'Película'], ['serie', 'Serie'], ['otro', 'Otro']]) {
+      const b = el('button', sub.tipo === k ? 'activa' : '', txt); b.type = 'button';
+      b.onclick = () => { sub.tipo = k; pintar(); };
+      tipos.append(b);
+    }
+    f.append(tipos);
+
+    const carpeta = el('select');
+    for (const c of sub.raiz) { const o = el('option', null, c); o.value = c; o.selected = c === sub.carpeta; carpeta.append(o); }
+    carpeta.onchange = () => { sub.carpeta = carpeta.value; sub.archivos.forEach((a) => { a.editada = false; }); pintar(); };
+    const lc = el('label', null, 'Carpeta de e2 (biblioteca)'); lc.append(carpeta); f.append(lc);
+
+    const campo = (texto, valor, alCambiar, op = {}) => {
+      const l = el('label', op.clase ?? null, texto); const i = el('input');
+      i.value = valor; i.spellcheck = false; if (op.placeholder) i.placeholder = op.placeholder; if (op.lista) i.setAttribute('list', op.lista);
+      if (op.modo) i.inputMode = op.modo;
+      i.oninput = () => { alCambiar(i.value); repintarRutas(); };
+      l.append(i); return l;
+    };
+    if (sub.tipo === 'pelicula') {
+      const fila = el('div', 'fila-campos');
+      fila.append(campo('Título', sub.titulo, (x) => { sub.titulo = x; }, { placeholder: 'Como en TMDB: La mangosta' }),
+        campo('Año', sub.ano, (x) => { sub.ano = x.replace(/\D/g, '').slice(0, 4); }, { placeholder: '2026', modo: 'numeric', clase: 'corto' }));
+      f.append(fila);
+    } else if (sub.tipo === 'serie') {
+      cargarSubcarpetas(sub.carpeta);
+      const dl = el('datalist'); dl.id = 'series-e2';
+      for (const x of sub.subcarpetas[sub.carpeta] ?? []) { const o = el('option'); o.value = x; dl.append(o); }
+      const fila = el('div', 'fila-campos');
+      fila.append(campo('Serie', sub.serie, (x) => { sub.serie = x; }, { placeholder: 'Nombre (Año), o elige una que ya está', lista: 'series-e2' }),
+        campo('Temporada', sub.temporada, (x) => { sub.temporada = x.replace(/\D/g, '').slice(0, 2); }, { placeholder: '1', modo: 'numeric', clase: 'corto' }));
+      f.append(fila, dl, el('p', 'ayuda', 'Si el archivo lleva S01E02 (o 1x02) se usa eso para la temporada y el episodio; si no, la temporada de aquí y el nombre tal cual.'));
+    } else {
+      f.append(campo('Subcarpeta (opcional)', sub.otra, (x) => { sub.otra = x; }, { placeholder: 'Por ejemplo: Fernando (2020)/Temporada 1' }),
+        el('p', 'ayuda', 'Se sube con el nombre original del archivo.'));
+    }
+
+    // Elegir o soltar archivos
+    const zona = el('label', 'zona-subir');
+    const input = el('input'); input.type = 'file'; input.multiple = true; input.hidden = true;
+    input.accept = '.mkv,.mp4,.m4v,.avi,.mov,.webm,.ts,.m2ts,.wmv,.mpg,.mpeg,.srt,.ass,.ssa,.vtt,.sub,.idx,.sup,.jpg,.jpeg,.png,.nfo';
+    zona.append(ico('archivo', 'grande tono-acento'), el('b', null, 'Elige o arrastra aquí los archivos'), el('small', null, 'Vídeos, subtítulos o imágenes. Puedes poner varios episodios a la vez.'), input);
+    const anadir = (lista) => {
+      for (const file of lista) {
+        if (sub.archivos.some((a) => a.file.name === file.name && a.file.size === file.size)) continue;
+        sub.archivos.push({ file, editada: false, ruta: '' });
+      }
+      // Rellena título y año (o la serie) con el nombre del primer archivo, si aún está vacío
+      const primero = sub.archivos.find((a) => VIDEO.test(a.file.name))?.file.name;
+      if (primero && sub.tipo === 'pelicula' && !sub.titulo) Object.assign(sub, leerPelicula(primero));
+      if (primero && sub.tipo === 'serie' && !sub.serie) {
+        const ep = leerEpisodio(primero); const nombre = ep?.serie || leerPelicula(primero).titulo;
+        const ya = (sub.subcarpetas[sub.carpeta] ?? []).find((x) => x.toLowerCase().startsWith(nombre.toLowerCase()));
+        sub.serie = ya ?? nombre;
+        if (ep) sub.temporada = String(ep.s);
+      }
+      pintar();
+    };
+    input.onchange = () => anadir([...input.files]);
+    zona.ondragover = (e) => { e.preventDefault(); zona.classList.add('encima'); };
+    zona.ondragleave = () => zona.classList.remove('encima');
+    zona.ondrop = (e) => { e.preventDefault(); zona.classList.remove('encima'); anadir([...e.dataTransfer.files]); };
+    f.append(zona);
+
+    // Cómo quedará cada archivo
+    const lista = el('div', 'lista-subir'); lista.id = 'rutas-subir';
+    f.append(lista);
+    const pie = el('div', 'botones');
+    const vaciar = boton('Quitar todos'); vaciar.onclick = () => { sub.archivos = []; pintar(); };
+    const ir = boton(sub.archivos.length > 1 ? `Subir ${sub.archivos.length} archivos` : 'Subir', 'primario', 'subir');
+    ir.id = 'boton-subir';
+    ir.onclick = () => ponerEnCola();
+    if (sub.archivos.length) pie.append(vaciar);
+    pie.append(ir); f.append(pie);
+    repintarRutas(lista);
+    ir.disabled = !puedeSubir();
+    return t.caja;
+  }
+
+  function repintarRutas(lista = $('#rutas-subir')) {
+    if (!lista) return;
+    lista.innerHTML = '';
+    for (const a of sub.archivos) a.ruta = rutaDe(a);
+    if (!sub.archivos.length) { lista.append(el('p', 'tarjeta-vacia', 'Aún no has elegido ningún archivo.')); }
+    for (const a of sub.archivos) {
+      const fila = el('div', 'linea-subir');
+      const txt = el('div', 'linea-subir-texto');
+      txt.append(el('b', null, a.file.name), el('small', 'mono', `→ ${a.ruta}`));
+      const avisoEp = sub.tipo === 'serie' && VIDEO.test(a.file.name) && !leerEpisodio(a.file.name) && !a.editada;
+      if (avisoEp) txt.append(el('small', 'tono-aviso', 'No lleva S01E02: Emby puede no reconocer el episodio. Cambia el nombre con el lápiz.'));
+      const tam = el('span', 'tenue', gb(a.file.size));
+      const ed = boton(null, 'icono fino', 'editar', 'Cambiar la ruta');
+      ed.onclick = async () => { const r = await pedirTexto('Ruta en e2', 'Carpeta de la biblioteca / subcarpetas / nombre del archivo.', a.ruta, 'Guardar'); if (r) { a.ruta = r.replace(/^\/+/, ''); a.editada = true; repintarRutas(); } };
+      const q = boton(null, 'icono fino', 'cerrar', 'Quitar');
+      q.onclick = () => { sub.archivos.splice(sub.archivos.indexOf(a), 1); pintar(); };
+      fila.append(ico(VIDEO.test(a.file.name) ? 'directo' : 'archivo', 'tono-acento'), txt, tam, ed, q);
+      lista.append(fila);
+    }
+    const b = $('#boton-subir'); if (b) b.disabled = !puedeSubir();
+  }
+  const puedeSubir = () => sub.archivos.length > 0 && Boolean(sub.carpeta) && !(sub.tipo === 'serie' && !limpio(sub.serie)) && !(sub.tipo === 'pelicula' && !limpio(sub.titulo));
+
+  // ---- Cola de subidas ----
+  function ponerEnCola() {
+    for (const a of sub.archivos) sub.cola.push({ file: a.file, ruta: a.ruta, subido: 0, estado: 'esperando', error: '', xhrs: new Set(), id: null });
+    sub.archivos = [];
+    if (sub.tipo === 'pelicula') { sub.titulo = ''; sub.ano = ''; }
+    pintar();
+    trabajar();
+  }
+  let trabajando = false;
+  async function trabajar() {
+    if (trabajando) return; trabajando = true;
+    try {
+      let x;
+      while ((x = sub.cola.find((i) => i.estado === 'esperando'))) await subirUno(x);
+    } finally { trabajando = false; }
+  }
+  window.addEventListener('beforeunload', (e) => { if (sub.cola.some((i) => i.estado === 'subiendo' || i.estado === 'esperando')) { e.preventDefault(); e.returnValue = ''; } });
+
+  function putTrozo(item, url, blob, alAvanzar) {
+    return new Promise((ok, mal) => {
+      const x = new XMLHttpRequest(); item.xhrs.add(x);
+      x.open('PUT', url);
+      x.upload.onprogress = (e) => alAvanzar(e.loaded);
+      x.onload = () => { item.xhrs.delete(x); const et = x.getResponseHeader('ETag'); if (x.status >= 200 && x.status < 300 && et) ok(et.replace(/"/g, '')); else mal(Object.assign(new Error(x.status >= 200 && x.status < 300 ? 'e2 no devuelve la marca del trozo (CORS)' : `e2 respondió ${x.status}`), { status: x.status })); };
+      x.onerror = () => { item.xhrs.delete(x); mal(new Error('Se cortó la conexión')); };
+      x.onabort = () => { item.xhrs.delete(x); mal(Object.assign(new Error('Cancelada'), { cancelada: true })); };
+      x.send(blob);
+    });
+  }
+
+  async function subirUno(item) {
+    item.estado = 'subiendo'; item.inicio = Date.now(); item.error = ''; pintarItem(item);
+    try {
+      let a;
+      try { a = await api('/api/panel/e2/abrir', { ruta: item.ruta, tamano: item.file.size, tipo: item.file.type }); } catch (e) {
+        if (e.status !== 409) throw e;
+        if (!(await confirmar('Ese archivo ya existe', `En e2 ya hay «${item.ruta}». ¿Quieres reemplazarlo por el nuevo?`, 'Reemplazar', true))) { item.estado = 'cancelada'; pintarItem(item); return; }
+        a = await api('/api/panel/e2/abrir', { ruta: item.ruta, tamano: item.file.size, tipo: item.file.type, reemplazar: true });
+      }
+      item.id = a.id;
+      const etags = new Array(a.partes);
+      const hechos = new Array(a.partes).fill(0);
+      const urls = {};
+      const pendientes = Array.from({ length: a.partes }, (_, i) => i + 1);
+      // Direcciones firmadas de 20 en 20 (la que falta y las siguientes que aún no se han empezado)
+      const pedirUrls = async (n) => {
+        const numeros = [n, ...pendientes.slice(0, 19)].filter((x) => !urls[x]);
+        Object.assign(urls, (await api('/api/panel/e2/trozos', { id: a.id, numeros })).urls);
+      };
+      const hilo = async () => {
+        let n;
+        while ((n = pendientes.shift()) !== undefined) {
+          if (item.estado !== 'subiendo') return;
+          const blob = item.file.slice((n - 1) * a.tamParte, n * a.tamParte);
+          for (let intento = 1; ; intento++) {
+            try {
+              if (!urls[n]) await pedirUrls(n);
+              etags[n - 1] = await putTrozo(item, urls[n], blob, (b) => { hechos[n - 1] = b; item.subido = hechos.reduce((s, x) => s + x, 0); pintarItem(item); });
+              hechos[n - 1] = blob.size; break;
+            } catch (e) {
+              if (e.cancelada || item.estado !== 'subiendo') return;
+              hechos[n - 1] = 0;
+              if (e.status === 403) delete urls[n]; // la dirección caducó: se pide otra
+              if (intento >= 5) throw e;
+              await new Promise((r) => setTimeout(r, 2000 * intento));
+            }
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, a.partes) }, hilo));
+      if (item.estado !== 'subiendo') return;
+      if (etags.some((x) => !x)) throw new Error('Faltan trozos por subir');
+      item.estado = 'juntando'; pintarItem(item);
+      await api('/api/panel/e2/cerrar', { id: a.id, etags });
+      item.estado = 'hecho'; item.subido = item.file.size; item.fin = Date.now();
+      aviso(`Subido: ${item.ruta.split('/').pop()}`, 'bien');
+    } catch (e) {
+      if (item.estado === 'cancelada') return;
+      item.estado = 'error'; item.error = e.message;
+      item.xhrs.forEach((x) => x.abort());
+      if (item.id) api('/api/panel/e2/cancelar', { id: item.id }).catch(() => {});
+    }
+    pintarItem(item);
+  }
+
+  function cancelarItem(item) {
+    if (item.estado === 'esperando') { item.estado = 'cancelada'; pintarItem(item); return; }
+    if (item.estado !== 'subiendo') return;
+    item.estado = 'cancelada';
+    item.xhrs.forEach((x) => x.abort());
+    if (item.id) api('/api/panel/e2/cancelar', { id: item.id }).catch(() => {});
+    pintarItem(item);
+  }
+
+  function colaSubir() {
+    const t = tarjeta('Subidas', 'subir', sub.cola.length ? null : 'Lo que subas aparecerá aquí con su progreso. Puedes cambiar de sección en el panel mientras tanto, pero no cierres esta pestaña.');
+    t.cuerpo.id = 'cola-subir';
+    for (const item of [...sub.cola].reverse()) t.cuerpo.append(filaItem(item));
+    const hechos = sub.cola.filter((i) => ['hecho', 'cancelada', 'error'].includes(i.estado));
+    if (hechos.length) {
+      const b = boton('Limpiar la lista', 'fino'); b.onclick = () => { sub.cola = sub.cola.filter((i) => !hechos.includes(i)); pintar(); };
+      const fila = el('div', 'botones'); fila.append(b); t.cuerpo.append(fila);
+    }
+    if (sub.cola.some((i) => i.estado === 'hecho')) t.cuerpo.append(el('p', 'ayuda', 'Emby lo verá solo en unos minutos (escanea las bibliotecas al terminar cada subida).'));
+    return t.caja;
+  }
+  const TEXTO_ESTADO = { esperando: 'En espera', subiendo: 'Subiendo', juntando: 'Terminando…', hecho: 'Subido', error: 'Error', cancelada: 'Cancelada' };
+  function filaItem(item) {
+    const f = el('div', 'item-subida'); item.el = f;
+    const cab = el('div', 'item-cab');
+    const txt = el('div', 'linea-subir-texto'); txt.append(el('b', null, item.ruta.split('/').pop()), el('small', 'mono tenue', item.ruta));
+    const tono = { hecho: 'bien', error: 'mal', cancelada: 'gris', subiendo: 'acento', juntando: 'acento', esperando: 'gris' }[item.estado];
+    cab.append(txt, el('span', `chip tono-${tono}`, TEXTO_ESTADO[item.estado]));
+    if (['esperando', 'subiendo'].includes(item.estado)) { const c = boton(null, 'icono fino', 'cerrar', 'Cancelar'); c.onclick = () => cancelarItem(item); cab.append(c); }
+    if (item.estado === 'error') { const r = boton(null, 'icono fino', 'recargar', 'Reintentar'); r.onclick = () => { item.estado = 'esperando'; item.subido = 0; item.id = null; pintarItem(item); trabajar(); }; cab.append(r); }
+    f.append(cab);
+    const p = item.file.size ? Math.min(100, (item.subido / item.file.size) * 100) : 0;
+    const barra = el('div', `barra ${item.estado === 'hecho' ? 'tono-bien' : item.estado === 'error' ? 'tono-mal' : 'tono-acento'}`); const r = el('i'); r.style.width = `${p}%`; barra.append(r);
+    let detalle = `${gb(item.subido)} de ${gb(item.file.size)}`;
+    if (item.estado === 'subiendo' && item.subido > 0) {
+      const seg = (Date.now() - item.inicio) / 1000; const vel = item.subido / Math.max(1, seg);
+      const queda = (item.file.size - item.subido) / Math.max(1, vel);
+      detalle += ` · ${(vel / 1048576).toFixed(1)} MB/s · quedan ${queda > 3600 ? `${Math.floor(queda / 3600)} h ${Math.round((queda % 3600) / 60)} min` : queda > 60 ? `${Math.round(queda / 60)} min` : `${Math.round(queda)} s`}`;
+    }
+    if (item.estado === 'error') detalle = item.error;
+    f.append(barra, el('small', item.estado === 'error' ? 'tono-mal' : 'tenue', `${Math.floor(p)} % · ${detalle}`));
+    return f;
+  }
+  // Repinta solo la fila (como mucho 4 veces por segundo); si no está en pantalla, no hace nada
+  function pintarItem(item) {
+    const ahora = Date.now();
+    if (item.estado === 'subiendo' && item.pintado && ahora - item.pintado < 250) return;
+    item.pintado = ahora;
+    const viejo = item.el;
+    if (viejo?.isConnected) viejo.replaceWith(filaItem(item));
+    // Al cambiar de estado (hecho, error…) se repinta la tarjeta entera para los botones del pie
+    if (item.estado !== 'subiendo' && vista === 'subir' && $('#cola-subir') && !pila.length) { const c = colaSubir(); $('#cola-subir').closest('.tarjeta').replaceWith(c); }
   }
 
   // ---------- Acciones ----------

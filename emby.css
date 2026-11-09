@@ -278,3 +278,36 @@ input[type=number] { width: 100%; padding: 0 12px; border-radius: 10px; border: 
   .lateral-pie .coste-resumen { flex: 1 0 100%; margin: 0; }
 }
 .chip-creditos.ajeno { background: var(--panel3); color: var(--suave); }
+
+/* ---------- Subir a e2 ---------- */
+.rejilla-subir { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.form-subir { gap: 14px; padding-top: 14px; }
+.form-subir .segmentos { align-self: flex-start; }
+.form-subir .ayuda { margin: -6px 0 0; }
+select { width: 100%; height: 40px; padding: 0 34px 0 12px; border-radius: 10px; border: 1px solid var(--borde2); background: var(--fondo2); color: var(--texto); appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa1af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; background-size: 16px; }
+select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px var(--acento-f); }
+.fila-campos { display: grid; grid-template-columns: minmax(0, 1fr) 110px; gap: 12px; }
+.zona-subir { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 16px; border: 1.5px dashed var(--borde2); border-radius: 12px; background: var(--fondo2);
+  text-align: center; cursor: pointer; color: var(--texto); font-weight: 500; transition: border-color .15s, background .15s; }
+.zona-subir:hover, .zona-subir.encima { border-color: var(--acento); background: var(--acento-f); }
+.zona-subir b { font-size: 14.5px; }
+.zona-subir small { color: var(--tenue); font-weight: 400; }
+.lista-subir { display: flex; flex-direction: column; }
+.lista-subir .tarjeta-vacia { margin: 0; }
+.linea-subir { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--borde); }
+.linea-subir:first-child { border-top: 0; }
+.linea-subir > .tenue { font-size: 12.5px; white-space: nowrap; }
+.linea-subir-texto { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.linea-subir-texto b { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.linea-subir-texto small { font-size: 12px; color: var(--suave); overflow-wrap: anywhere; }
+.form-subir .botones, #cola-subir .botones { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.item-subida { display: flex; flex-direction: column; gap: 7px; padding: 12px 0; border-top: 1px solid var(--borde); }
+#cola-subir > .item-subida:first-child { border-top: 0; }
+.item-subida > small { font-size: 12px; font-variant-numeric: tabular-nums; }
+.item-cab { display: flex; align-items: center; gap: 10px; }
+.chip.tono-bien { background: var(--bien-f); } .chip.tono-mal { background: var(--mal-f); } .chip.tono-acento { background: var(--acento-f); color: var(--acento2); }
+#cola-subir > p.ayuda { margin: 6px 0 0; }
+@media (max-width: 980px) { .rejilla-subir { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { #menu a span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } #menu a { min-width: 0; } }
