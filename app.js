@@ -677,7 +677,11 @@
   // de cada trozo. Los nombres se ponen como los entiende Emby:
   //   Película → CARPETA/Título (Año)/Título (Año).mkv
   //   Serie    → CARPETA/Serie (Año)/Temporada 1/Serie - S01E02 - Título.mkv
-  const sub = { tipo: 'pelicula', carpeta: '', titulo: '', ano: '', serie: '', temporada: '1', otra: '', archivos: [], cola: [], raiz: null, subcarpetas: {}, error: '' };
+  const sub = { tipo: 'pelicula', carpeta: '', titulo: '', ano: '', serie: '', temporada: '1', otra: '', archivos: [], cola: [], raiz: null, subcarpetas: {}, error: '',
+    ficha: null, busca: '', resultados: null, buscando: false, errorFicha: '' };
+  // Código para el nombre de la carpeta: con él Emby acierta siempre la ficha
+  const etiquetaId = (f) => (f?.imdb ? `[imdbid=${f.imdb}]` : f?.tmdb ? `[tmdbid=${f.tmdb}]` : '');
+  const sinEtiquetas = (s) => String(s).replace(/\s*\[(imdbid|tmdbid|tvdbid)[=-][^\]]*\]/gi, '').replace(/\s*\((19|20)\d{2}\)$/, '').trim();
   const VIDEO = /\.(mkv|mp4|m4v|avi|mov|webm|ts|m2ts|wmv|mpg|mpeg)$/i;
   const SUBTITULO = /\.(srt|ass|ssa|vtt|sub|idx|sup)$/i;
   const extension = (n) => (/\.[^.]+$/.exec(n)?.[0] ?? '').toLowerCase();
@@ -721,14 +725,17 @@
     const c = sub.carpeta; const ext = extension(a.file.name);
     if (!c) return '';
     if (sub.tipo === 'pelicula') {
+      // Carpeta «Título (Año) [imdbid=tt…]» y archivo «Título (Año).mkv»
       const base = `${limpio(sub.titulo) || 'Sin título'}${/^\d{4}$/.test(sub.ano) ? ` (${sub.ano})` : ''}`;
-      if (VIDEO.test(a.file.name)) return `${c}/${base}/${base}${ext}`;
-      if (SUBTITULO.test(a.file.name)) { const idioma = /\.(es|spa|en|eng|forced)\.[^.]+$/i.exec(a.file.name)?.[1]; return `${c}/${base}/${base}${idioma ? `.${idioma.toLowerCase()}` : ''}${ext}`; }
-      return `${c}/${base}/${limpio(a.file.name)}`;
+      const dir = `${c}/${base}${sub.ficha ? ` ${etiquetaId(sub.ficha)}` : ''}`;
+      if (VIDEO.test(a.file.name)) return `${dir}/${base}${ext}`;
+      if (SUBTITULO.test(a.file.name)) { const idioma = /\.(es|spa|en|eng|forced)\.[^.]+$/i.exec(a.file.name)?.[1]; return `${dir}/${base}${idioma ? `.${idioma.toLowerCase()}` : ''}${ext}`; }
+      return `${dir}/${limpio(a.file.name)}`;
     }
     if (sub.tipo === 'serie') {
+      // Carpeta «Serie (Año) [imdbid=tt…]» (o la que ya había) y episodios «Serie - S01E02 - Título.mkv»
       const carpetaSerie = limpio(sub.serie) || 'Sin nombre';
-      const nombreSerie = carpetaSerie.replace(/\s*\((19|20)\d{2}\)$/, '');
+      const nombreSerie = sinEtiquetas(carpetaSerie) || carpetaSerie;
       const ep = leerEpisodio(a.file.name);
       const temp = ep ? ep.s : Number(sub.temporada) || 1;
       const archivo = ep ? `${nombreSerie} - S${dos(ep.s)}E${dos(ep.e)}${ep.resto ? ` - ${ep.resto}` : ''}${ext}` : limpio(a.file.name);
@@ -777,7 +784,7 @@
     const tipos = el('div', 'segmentos');
     for (const [k, txt] of [['pelicula', 'Película'], ['serie', 'Serie'], ['otro', 'Otro']]) {
       const b = el('button', sub.tipo === k ? 'activa' : '', txt); b.type = 'button';
-      b.onclick = () => { sub.tipo = k; pintar(); };
+      b.onclick = () => { if (sub.tipo !== k) { sub.ficha = null; sub.resultados = null; sub.errorFicha = ''; } sub.tipo = k; pintar(); };
       tipos.append(b);
     }
     f.append(tipos);
@@ -794,6 +801,7 @@
       i.oninput = () => { alCambiar(i.value); repintarRutas(); };
       l.append(i); return l;
     };
+    if (sub.tipo !== 'otro') f.append(bloqueFicha());
     if (sub.tipo === 'pelicula') {
       const fila = el('div', 'fila-campos');
       fila.append(campo('Título', sub.titulo, (x) => { sub.titulo = x; }, { placeholder: 'Como en TMDB: La mangosta' }),
@@ -825,6 +833,12 @@
       // Rellena título y año (o la serie) con el nombre del primer archivo, si aún está vacío
       const primero = sub.archivos.find((a) => VIDEO.test(a.file.name))?.file.name;
       if (primero && sub.tipo === 'pelicula' && !sub.titulo) Object.assign(sub, leerPelicula(primero));
+      // …y deja preparada la búsqueda de la ficha (o la busca ya, si el nombre lleva el código de IMDb)
+      if (primero && !sub.ficha && !sub.busca) {
+        const tt = /tt\d{6,10}/i.exec(primero)?.[0];
+        sub.busca = tt ?? (sub.tipo === 'pelicula' ? `${sub.titulo}${sub.ano ? ` ${sub.ano}` : ''}` : sinEtiquetas(leerEpisodio(primero)?.serie || leerPelicula(primero).titulo));
+        if (tt) buscarFicha();
+      }
       if (primero && sub.tipo === 'serie' && !sub.serie) {
         const ep = leerEpisodio(primero); const nombre = ep?.serie || leerPelicula(primero).titulo;
         const ya = (sub.subcarpetas[sub.carpeta] ?? []).find((x) => x.toLowerCase().startsWith(nombre.toLowerCase()));
@@ -877,11 +891,78 @@
   }
   const puedeSubir = () => sub.archivos.length > 0 && Boolean(sub.carpeta) && !(sub.tipo === 'serie' && !limpio(sub.serie)) && !(sub.tipo === 'pelicula' && !limpio(sub.titulo));
 
+  // ---- Ficha de IMDb / TMDB ----
+  async function buscarFicha() {
+    const q = sub.busca.trim();
+    if (!q) return;
+    sub.buscando = true; sub.errorFicha = ''; sub.resultados = null; pintar();
+    try {
+      const r = await api(`/api/panel/e2/ficha?tipo=${sub.tipo}&q=${encodeURIComponent(q)}`);
+      // Un enlace de TMDB de serie con «Película» elegido (o al revés): se cambia solo
+      if (r.tipo !== sub.tipo) { sub.tipo = r.tipo; sub.ficha = null; }
+      sub.resultados = r.resultados;
+      // Con un código (IMDb o TMDB) y un solo resultado, se elige directamente
+      if (r.por !== 'titulo' && r.resultados.length === 1) elegirFicha(r.resultados[0]);
+      else if (!r.resultados.length) sub.errorFicha = r.por === 'titulo' ? 'No se ha encontrado nada con ese título' : 'No se ha encontrado nada con ese código';
+    } catch (e) { sub.errorFicha = e.message; }
+    sub.buscando = false;
+    if (vista === 'subir') pintar();
+  }
+  function elegirFicha(x) {
+    sub.ficha = x; sub.resultados = null; sub.errorFicha = '';
+    if (sub.tipo === 'pelicula') { sub.titulo = x.nombre; sub.ano = x.ano ? String(x.ano) : ''; }
+    else {
+      // Si la serie ya tiene carpeta en e2 (con o sin código), se usa esa; si no, una nueva con el código
+      const ya = (sub.subcarpetas[sub.carpeta] ?? []).find((c) => (x.imdb && c.includes(x.imdb)) || (x.tmdb && c.includes(`tmdbid=${x.tmdb}`))
+        || sinEtiquetas(c).toLowerCase() === x.nombre.toLowerCase());
+      sub.serie = ya ?? `${limpio(x.nombre)}${x.ano ? ` (${x.ano})` : ''} ${etiquetaId(x)}`;
+    }
+    sub.archivos.forEach((a) => { a.editada = false; });
+    if (vista === 'subir') pintar();
+  }
+  function bloqueFicha() {
+    const caja = el('div', 'bloque-ficha');
+    if (sub.ficha) {
+      const x = sub.ficha;
+      const fila = el('div', 'ficha-elegida');
+      const img = el('div', 'mini-cartel'); if (x.cartel) img.style.backgroundImage = `url("${x.cartel}")`;
+      const tx = el('div', 'linea-subir-texto');
+      tx.append(el('b', null, `${x.nombre}${x.ano ? ` (${x.ano})` : ''}`), el('small', 'mono', [x.imdb && `IMDb ${x.imdb}`, x.tmdb && `TMDB ${x.tmdb}`].filter(Boolean).join(' · ')),
+        el('small', 'tono-bien', 'Vinculada: Emby reconocerá la ficha por su código'));
+      const q = boton('Cambiar', 'fino'); q.onclick = () => { sub.ficha = null; pintar(); };
+      fila.append(img, tx, q); caja.append(fila);
+      return caja;
+    }
+    const l = el('label', null, sub.tipo === 'serie' ? 'Ficha de la serie: IMDb, TMDB o título' : 'Ficha de la película: IMDb, TMDB o título');
+    const fila = el('div', 'fila-busca');
+    const i = el('input'); i.value = sub.busca; i.spellcheck = false; i.placeholder = 'tt1234567, enlace de imdb.com o themoviedb.org, o el título';
+    i.oninput = () => { sub.busca = i.value; };
+    i.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); buscarFicha(); } };
+    const b = boton(sub.buscando ? 'Buscando…' : 'Buscar', 'primario', 'buscar'); b.disabled = sub.buscando; b.onclick = buscarFicha;
+    fila.append(i, b); l.append(fila); caja.append(l);
+    if (sub.errorFicha) caja.append(el('p', 'ayuda tono-mal', sub.errorFicha));
+    if (sub.resultados?.length) {
+      const lista = el('div', 'resultados-ficha');
+      for (const x of sub.resultados) {
+        const r = el('button', 'resultado-ficha'); r.type = 'button';
+        const img = el('div', 'mini-cartel'); if (x.cartel) img.style.backgroundImage = `url("${x.cartel}")`;
+        const tx = el('div', 'linea-subir-texto');
+        tx.append(el('b', null, `${x.nombre}${x.ano ? ` (${x.ano})` : ''}`), el('small', 'mono', [x.imdb, x.tmdb && `TMDB ${x.tmdb}`].filter(Boolean).join(' · ')));
+        if (x.resumen) tx.append(el('small', 'tenue resumen-ficha', x.resumen));
+        r.append(img, tx); r.onclick = () => elegirFicha(x);
+        lista.append(r);
+      }
+      caja.append(lista);
+    }
+    return caja;
+  }
+
   // ---- Cola de subidas ----
   function ponerEnCola() {
     for (const a of sub.archivos) sub.cola.push({ file: a.file, ruta: a.ruta, subido: 0, estado: 'esperando', error: '', xhrs: new Set(), id: null });
     sub.archivos = [];
-    if (sub.tipo === 'pelicula') { sub.titulo = ''; sub.ano = ''; }
+    if (sub.tipo === 'pelicula') { sub.titulo = ''; sub.ano = ''; sub.ficha = null; }
+    sub.busca = ''; sub.resultados = null;
     pintar();
     trabajar();
   }

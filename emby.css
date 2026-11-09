@@ -311,3 +311,16 @@ select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px
 #cola-subir > p.ayuda { margin: 6px 0 0; }
 @media (max-width: 980px) { .rejilla-subir { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) { #menu a span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } #menu a { min-width: 0; } }
+
+/* Ficha de IMDb / TMDB en «Subir» */
+.bloque-ficha { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 12px; background: var(--fondo2); border: 1px solid var(--borde); }
+.bloque-ficha .ayuda { margin: 0; }
+.fila-busca { display: flex; gap: 8px; }
+.fila-busca input { flex: 1; min-width: 0; }
+.fila-busca .boton { height: 40px; }
+.resultados-ficha { display: flex; flex-direction: column; gap: 4px; max-height: 360px; overflow-y: auto; }
+.resultado-ficha { display: flex; align-items: flex-start; gap: 12px; padding: 8px; border: 1px solid transparent; border-radius: 10px; background: none; text-align: left; cursor: pointer; color: var(--texto); }
+.resultado-ficha:hover, .resultado-ficha:focus-visible { background: var(--panel2); border-color: var(--borde2); outline: none; }
+.mini-cartel { flex: none; width: 46px; aspect-ratio: 2 / 3; border-radius: 6px; background: var(--panel3) center / cover no-repeat; }
+.ficha-elegida { display: flex; align-items: center; gap: 12px; }
+.resumen-ficha { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
