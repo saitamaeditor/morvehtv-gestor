@@ -1,44 +1,74 @@
 <!doctype html>
-<html lang="es" data-version="20261109010808">
+<html lang="es" data-version="20261109012700">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MorvehTV Cuentas</title>
-<meta name="theme-color" content="#101114">
+<meta name="theme-color" content="#0b0c0f">
 <meta name="robots" content="noindex">
 <link rel="icon" href="icono.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icono-192.png">
-<link rel="stylesheet" href="estilos.css?v=20261109010808">
-<link rel="stylesheet" href="emby.css?v=20261109010808">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="estilos.css?v=20261109012700">
+<link rel="stylesheet" href="emby.css?v=20261109012700">
 </head>
 <body>
 
 <!-- Entrar -->
 <section id="vista-entrar" class="entrar" hidden>
-  <form class="tarjeta-entrar" id="f-entrar" novalidate>
-    <div class="marca grande"><img src="icono.svg" alt=""><b>Morveh<span>TV</span></b><em>Cuentas</em></div>
-    <p class="sub">Gestiona las cuentas de tu servidor de Emby: crea, renueva y controla quién entra. Entra con tu cuenta de administrador de MorvehTV.</p>
-    <label>Usuario<input id="e-usuario" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
-    <label>Contraseña<input id="e-clave" type="password" autocomplete="current-password"></label>
-    <button class="boton primario ancho" type="submit">Entrar</button>
-    <p class="error" id="e-error" role="alert"></p>
-  </form>
+  <div class="entrar-marco">
+    <aside class="entrar-lado">
+      <div class="marca"><img src="icono.svg" alt=""><b>Morveh<span>TV</span></b></div>
+      <div class="entrar-lema">
+        <h2>Tu servidor de Emby, bajo control.</h2>
+        <p>Crea cuentas en segundos, controla cuándo caducan y mira quién está viendo qué, todo desde un solo panel.</p>
+      </div>
+      <ul class="entrar-puntos">
+        <li>Caducidad automática de las cuentas</li>
+        <li>Límite de pantallas y bibliotecas por cuenta</li>
+        <li>Reproducciones en directo</li>
+      </ul>
+    </aside>
+    <form class="tarjeta-entrar" id="f-entrar" novalidate>
+      <div class="marca solo-movil"><img src="icono.svg" alt=""><b>Morveh<span>TV</span></b></div>
+      <div>
+        <h1>Entrar al panel</h1>
+        <p class="sub">Usa tu cuenta de administrador de MorvehTV.</p>
+      </div>
+      <label>Usuario<input id="e-usuario" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+      <label>Contraseña<input id="e-clave" type="password" autocomplete="current-password"></label>
+      <button class="boton primario ancho" type="submit">Entrar</button>
+      <p class="error" id="e-error" role="alert"></p>
+    </form>
+  </div>
 </section>
 
 <!-- Panel -->
-<div id="vista-panel" hidden>
-  <header class="barra">
+<div id="vista-panel" class="app" hidden>
+  <aside class="nav">
     <div class="marca"><img src="icono.svg" alt=""><b>Morveh<span>TV</span></b><em>Cuentas</em></div>
-    <span class="hueco"></span>
-    <span class="usuario" id="usuario"></span>
-    <button class="boton fino" id="salir">Salir</button>
+    <nav id="menu" aria-label="Secciones"></nav>
+    <div class="nav-pie">
+      <div class="servidor" id="servidor"></div>
+      <div class="yo">
+        <div class="avatar" id="yo-avatar"></div>
+        <div class="yo-texto"><b id="yo-nombre"></b><small>Administrador</small></div>
+        <button class="boton icono" id="salir" title="Salir" aria-label="Salir"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg></span></button>
+      </div>
+    </div>
+  </aside>
+  <header class="barra-movil">
+    <div class="marca"><img src="icono.svg" alt=""><b>Morveh<span>TV</span></b></div>
+    <button class="boton icono" id="salir-movil" title="Salir" aria-label="Salir"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg></span></button>
   </header>
-  <main class="pagina-emby emby" id="emby"></main>
+  <main class="contenido" id="vista"></main>
 </div>
 
-<div class="avisos" id="avisos"></div>
+<div class="avisos" id="avisos" aria-live="polite"></div>
 
-<script src="config.js?v=20261109010808"></script>
-<script src="app.js?v=20261109010808"></script>
+<script src="config.js?v=20261109012700"></script>
+<script src="app.js?v=20261109012700"></script>
 </body>
 </html>
