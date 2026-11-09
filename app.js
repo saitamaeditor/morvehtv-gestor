@@ -40,6 +40,9 @@
     escudo: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
     flecha: '<path d="m6 9 6 6 6-6"/>',
     editar: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+    red: '<circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><path d="M12 8v3M12 11l-5.5 5.5M12 11l5.5 5.5"/>',
+    moneda: '<circle cx="12" cy="12" r="9"/><path d="M14.8 9A3 3 0 0 0 12 7.5c-1.7 0-3 1-3 2.3 0 3 6 1.5 6 4.4 0 1.3-1.3 2.3-3 2.3a3 3 0 0 1-2.8-1.5M12 6v1.5M12 16.5V18"/>',
+    menos: '<path d="M5 12h14"/>',
   };
   const ico = (n, clase = '') => { const s = el('span', `ico ${clase}`); s.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TRAZOS[n] ?? ''}</svg>`; return s; };
   const boton = (texto, clase = '', icono = null, titulo = null) => {
@@ -184,6 +187,7 @@
 
   // ---------- Entrar y salir ----------
   function salir() {
+    if (token?.startsWith('rv_')) fetch(`${API}/api/panel/emby/salir`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: '{}' }).catch(() => {});
     token = null;
     try { localStorage.removeItem('gestor-token'); } catch {}
     pila.slice().forEach((c) => c(null));
@@ -197,7 +201,13 @@
     $('#e-error').textContent = '';
     const b = e.target.querySelector('button'); b.disabled = true; b.textContent = 'Entrando…';
     try {
-      const r = await api('/api/panel/entrar', { usuario: $('#e-usuario').value, clave: $('#e-clave').value });
+      const cred = { usuario: $('#e-usuario').value, clave: $('#e-clave').value };
+      // Primero como administrador de MorvehTV; si no, como revendedor
+      let r;
+      try { r = await api('/api/panel/entrar', cred); } catch (e1) {
+        if (![401, 403].includes(e1.status)) throw e1;
+        try { r = await api('/api/panel/emby/entrar', cred); } catch (e2) { throw e2.status === 401 ? e1 : e2; }
+      }
       token = r.token;
       try { localStorage.setItem('gestor-token', token); } catch {}
       $('#e-clave').value = '';
@@ -210,24 +220,39 @@
 
   // ---------- Estado del panel ----------
   let d = null;          // lo último que dijo el servidor
-  let actividad = [];    // registro de acciones sobre Emby
+  let actividad = [];    // registro de acciones (administrador) o movimientos (revendedores)
+  let revs = [];         // revendedores que puedo gestionar
   let vista = 'resumen';
-  const filtros = { estado: 'todas', busca: '', orden: 'nombre', sube: true };
-  const VISTAS = {
+  let rol = 'admin';     // admin, super o revendedor
+  const filtros = { estado: 'todas', busca: '', orden: 'nombre', sube: true, dueno: '' };
+  const TODAS_VISTAS = {
     resumen: { titulo: 'Resumen', sub: 'Cómo está tu servidor de un vistazo', icono: 'resumen' },
     cuentas: { titulo: 'Cuentas', sub: 'Crea, renueva y controla quién entra en tu Emby', icono: 'cuentas' },
+    revendedores: { titulo: 'Revendedores', sub: 'Quién vende cuentas y cuántos créditos tiene', icono: 'red' },
     directo: { titulo: 'En directo', sub: 'Lo que se está viendo ahora mismo', icono: 'directo' },
     actividad: { titulo: 'Actividad', sub: 'Todo lo que se ha hecho desde este panel', icono: 'actividad' },
   };
+  let VISTAS = TODAS_VISTAS;
+  const NOMBRE_ROL = { admin: 'Administrador', super: 'Superrevendedor', revendedor: 'Revendedor' };
+  const esRevendedor = () => rol !== 'admin';
+  const creditos = () => d?.yo?.creditos ?? 0;
+  const costeMes = () => d?.costeMes ?? 1;
+  const textoCreditos = (n) => `${n} ${n === 1 ? 'crédito' : 'créditos'}`;
 
   function arrancar(yo) {
-    if (yo.rol !== 'admin') {
+    if (!['admin', 'super', 'revendedor'].includes(yo.rol)) {
       salir();
-      $('#e-error').textContent = 'Este panel es solo para administradores';
+      $('#e-error').textContent = 'Este panel es solo para administradores y revendedores';
       return;
     }
+    rol = yo.rol;
+    VISTAS = Object.fromEntries(Object.entries(TODAS_VISTAS).filter(([k]) => k !== 'revendedores' || rol !== 'revendedor'));
+    if (rol !== 'admin') { VISTAS.cuentas = { ...VISTAS.cuentas, sub: 'Tus clientes: crea, renueva y controla sus cuentas' }; VISTAS.actividad = { ...VISTAS.actividad, sub: 'Tus movimientos de créditos y cuentas' }; }
+    if (rol === 'super') VISTAS.revendedores = { ...VISTAS.revendedores, sub: 'Tus revendedores: dales créditos y controla lo que venden' };
+    filtros.dueno = '';
     const nombre = yo.nombre || yo.usuario;
     $('#yo-nombre').textContent = nombre;
+    $('#yo-rol').textContent = NOMBRE_ROL[rol];
     $('#yo-avatar').textContent = nombre[0].toUpperCase();
     $('#yo-avatar').style.setProperty('--c', colorDe(nombre));
     $('#vista-entrar').hidden = true; $('#vista-panel').hidden = false;
@@ -243,9 +268,19 @@
       a.append(ico(x.icono), el('span', null, x.titulo));
       if (d?.configurado && k === 'cuentas') a.append(el('small', 'contador', String(d.usuarios.filter((u) => !u.admin).length)));
       if (d?.configurado && k === 'directo') { const n = d.usuarios.reduce((t, u) => t + u.viendo.length, 0); if (n) a.append(el('small', 'contador vivo', String(n))); }
+      if (k === 'revendedores' && revs.length) a.append(el('small', 'contador', String(revs.length)));
       a.onclick = (e) => { e.preventDefault(); irA(k); };
       menu.append(a);
     }
+    // Saldo (revendedores)
+    const sal = $('#saldo'); sal.innerHTML = '';
+    sal.hidden = !esRevendedor() || !d;
+    if (esRevendedor() && d) {
+      const c = el('div', 'saldo-cab'); c.append(ico('moneda'), el('span', null, 'Tus créditos'));
+      sal.append(c, el('b', creditos() ? null : 'tono-mal', String(creditos())), el('small', null, `${textoCreditos(costeMes())} = 1 mes de cuenta`));
+      $('#saldo-movil').textContent = String(creditos());
+    }
+    $('#saldo-movil-caja').hidden = !esRevendedor() || !d;
     const s = $('#servidor'); s.innerHTML = '';
     if (d?.configurado) {
       const cab = el('div', 'servidor-cab'); cab.append(el('i', 'punto-vivo'), el('b', null, d.nombreServidor || 'Emby'));
@@ -270,9 +305,14 @@
 
   async function cargar(callado = false) {
     try {
-      const [res, reg] = await Promise.all([api('/api/panel/emby'), api('/api/panel/registro').catch(() => [])]);
+      const [res, reg, rv] = await Promise.all([
+        api('/api/panel/emby'),
+        api(esRevendedor() ? '/api/panel/emby/movimientos' : '/api/panel/registro').catch(() => []),
+        rol === 'revendedor' ? [] : api('/api/panel/emby/revendedores').catch(() => []),
+      ]);
       d = res;
-      actividad = (Array.isArray(reg) ? reg : []).filter((x) => /emby/i.test(x.accion));
+      actividad = (Array.isArray(reg) ? reg : []).filter((x) => esRevendedor() || /emby|revendedor|créditos/i.test(x.accion));
+      revs = Array.isArray(rv) ? rv : [];
     } catch (e) {
       if (callado && d) return;
       const v = $('#vista'); v.innerHTML = ''; v.append(cabecera());
@@ -306,7 +346,8 @@
     const rec = boton(null, 'icono', 'recargar', 'Actualizar');
     rec.onclick = async () => { rec.classList.add('girando'); await actualizar(); };
     acc.append(rec);
-    if (d?.configurado) { const n = boton('Nueva cuenta', 'primario', 'mas'); n.onclick = () => fichaCuenta(null); acc.append(n); }
+    if (vista === 'revendedores') { const n = boton('Nuevo revendedor', 'primario', 'mas'); n.onclick = () => fichaRevendedor(); acc.append(n); }
+    else if (d?.configurado) { const n = boton('Nueva cuenta', 'primario', 'mas'); n.onclick = () => fichaCuenta(null); acc.append(n); }
     c.append(t, acc);
     return c;
   }
@@ -318,7 +359,7 @@
     v.append(cabecera());
     if (!d) { v.append(esqueleto()); return; }
     if (!d.configurado) { v.append(sinConfigurar()); return; }
-    ({ resumen: vistaResumen, cuentas: vistaCuentas, directo: vistaDirecto, actividad: vistaActividad })[vista](v);
+    ({ resumen: vistaResumen, cuentas: vistaCuentas, revendedores: vistaRevendedores, directo: vistaDirecto, actividad: vistaActividad })[vista](v);
     window.scrollTo(0, mantenerScroll ? scroll : 0);
   }
   function esqueleto() {
@@ -350,12 +391,16 @@
       k.onclick = alPulsar;
       return k;
     };
-    kpis.append(
+    const cajas = [
       kpi('cuentas', 'acento', cuenta('activa') + cuenta('pronto'), 'Cuentas activas', `de ${normales().length} en total`, () => { filtros.estado = 'activas'; irA('cuentas'); }),
       kpi('directo', 'vivo', viendo.length, 'Viendo ahora', viendo.length ? `${personas} ${personas === 1 ? 'persona' : 'personas'}` : 'Nadie en este momento', () => irA('directo')),
       kpi('reloj', 'aviso', cuenta('pronto'), 'Caducan en 7 días', cuenta('pronto') ? 'Renuévalas a tiempo' : 'Todo al día', () => { filtros.estado = 'pronto'; irA('cuentas'); }),
       kpi('apagada', 'mal', cuenta('caducada') + cuenta('desactivada'), 'Sin acceso', `${cuenta('caducada')} caducadas · ${cuenta('desactivada')} desactivadas`, () => { filtros.estado = 'apagadas'; irA('cuentas'); }),
-    );
+    ];
+    // Los revendedores ven primero su saldo
+    if (esRevendedor()) cajas.splice(3, 1), cajas.unshift(kpi('moneda', 'morado', creditos(), 'Créditos', `${textoCreditos(costeMes())} = 1 mes de cuenta`, () => irA(rol === 'super' ? 'revendedores' : 'actividad')));
+    else if (revs.length) cajas.splice(3, 1, kpi('red', 'morado', revs.length, 'Revendedores', `${revs.reduce((t, x) => t + x.creditos, 0)} créditos repartidos`, () => irA('revendedores')));
+    kpis.append(...cajas);
     v.append(kpis);
 
     const rejilla = el('div', 'rejilla-resumen');
@@ -408,12 +453,15 @@
 
   function lineaActividad(x) {
     const f = el('div', 'linea-actividad');
-    const texto = x.accion.replace(/ (la )?cuenta de Emby /, ' ').replace(/^./, (c) => c.toUpperCase());
-    const tipo = /crea/.test(x.accion) ? ['mas', 'bien'] : /borra/.test(x.accion) ? ['papelera', 'mal'] : /renueva/.test(x.accion) ? ['renovar', 'acento']
-      : /contraseña/.test(x.accion) ? ['llave', 'morado'] : /desactiva/.test(x.accion) ? ['pausa', 'gris'] : /activa/.test(x.accion) ? ['play', 'bien'] : ['editar', 'acento'];
+    const texto = x.accion.replace(/ (la )?cuenta de Emby /, ' ').replace(/ la cuenta /, ' ').replace(/^./, (c) => c.toUpperCase());
+    const tipo = /crédito/.test(x.accion) ? ['moneda', 'morado'] : /revendedor/.test(x.accion) && /crea/.test(x.accion) ? ['red', 'bien'] : /crea/.test(x.accion) ? ['mas', 'bien']
+      : /borra/.test(x.accion) ? ['papelera', 'mal'] : /renueva/.test(x.accion) ? ['renovar', 'acento'] : /devolución/.test(x.accion) ? ['renovar', 'gris']
+      : /contraseña/.test(x.accion) ? ['llave', 'morado'] : /desactiva|suspende/.test(x.accion) ? ['pausa', 'gris'] : /activa/.test(x.accion) ? ['play', 'bien'] : ['editar', 'acento'];
     f.append(ico(tipo[0], `act-ico tono-${tipo[1]}`));
     const t = el('div', 'act-texto'); t.append(el('span', null, texto), el('small', null, `${x.usuario} · ${haceCuanto(x.fecha)}`));
     f.append(t);
+    if (x.creditos) f.append(el('span', `chip-creditos ${x.creditos > 0 ? 'mas' : 'menos'}`, `${x.creditos > 0 ? '+' : '−'}${Math.abs(x.creditos)}`));
+    else if (x.ajeno) { const c = el('span', 'chip-creditos ajeno', `${x.ajeno > 0 ? '+' : '−'}${Math.abs(x.ajeno)}`); c.title = 'Créditos de otro, no de tu saldo'; f.append(c); }
     return f;
   }
 
@@ -434,7 +482,17 @@
     const i = el('input'); i.type = 'search'; i.placeholder = 'Buscar por usuario o nota'; i.value = filtros.busca;
     busca.append(i);
     const exportar = boton('Exportar', '', 'descargar', 'Descargar la lista en CSV (se abre con Excel)'); exportar.onclick = exportarCsv;
-    const herramientas = el('div', 'herramientas'); herramientas.append(busca, exportar);
+    const herramientas = el('div', 'herramientas');
+    // Filtrar por revendedor (administrador y superrevendedores)
+    if (revs.length) {
+      const sel = el('select', 'selector'); sel.setAttribute('aria-label', 'Revendedor');
+      [['', 'Todos los vendedores'], ['propias', rol === 'admin' ? 'Solo las mías (sin revendedor)' : 'Solo las mías'], ...revs.map((x) => [x.id, `${x.nombre} (${x.rol === 'super' ? 'super' : 'revendedor'})`])]
+        .forEach(([v2, t]) => { const o = el('option', null, t); o.value = v2; sel.append(o); });
+      sel.value = filtros.dueno;
+      sel.onchange = () => { filtros.dueno = sel.value; pintarFilas(); };
+      herramientas.append(sel);
+    }
+    herramientas.append(busca, exportar);
     barra.append(pestanas, herramientas);
     v.append(barra);
 
@@ -471,6 +529,8 @@
         if (f === 'caducadas' && e !== 'caducada') return false;
         if (f === 'desactivadas' && e !== 'desactivada') return false;
         if (f === 'apagadas' && !['caducada', 'desactivada'].includes(e)) return false;
+        if (filtros.dueno === 'propias' && (u.admin || (u.dueno && revs.some((x) => x.id === u.dueno)))) return false;
+        if (filtros.dueno && filtros.dueno !== 'propias' && u.dueno !== filtros.dueno) return false;
         return !q || u.nombre.toLowerCase().includes(q) || (u.nota || '').toLowerCase().includes(q);
       });
       const val = {
@@ -507,9 +567,14 @@
     const f = el('div', `fila estado-${e.clave}`);
     const c1 = el('div', 'celda c-nombre');
     const q = el('div', 'linea-quien'); q.append(el('b', null, u.nombre));
+    const vendedor = u.dueno && revs.some((x) => x.id === u.dueno) ? u.duenoNombre : null;
     if (u.viendo.length) q.append(el('small', 'tono-vivo', `▶ ${u.viendo[0].titulo}`));
-    else if (u.nota) q.append(el('small', null, u.nota));
-    else if (u.admin) q.append(el('small', null, 'Cuenta de administración'));
+    else if (vendedor || u.nota) {
+      const s = el('small');
+      if (vendedor) s.append(el('span', 'vendedor', vendedor));
+      if (u.nota) s.append(document.createTextNode(u.nota));
+      q.append(s);
+    } else if (u.admin) q.append(el('small', null, 'Cuenta de administración'));
     else q.append(el('small', null, u.creada ? `Desde ${fechaCorta(u.creada)}` : ''));
     c1.append(avatar(u), q);
     const c2 = el('div', 'celda c-estado'); c2.append(insignia(e));
@@ -605,18 +670,24 @@
       w.append(cab, el('p', null, u.caduca && !u.caducada ? `Ahora caduca el ${fechaCorta(u.caduca)}. El tiempo se suma a esa fecha.` : 'El tiempo se cuenta desde hoy y la cuenta se vuelve a activar.'));
       const caja = el('div', 'opciones-renovar');
       const base = u.caduca && !u.caducada ? new Date(u.caduca).getTime() : Date.now();
-      [{ t: '1 mes', n: 30 }, { t: '3 meses', n: 90 }, { t: '6 meses', n: 180 }, { t: '1 año', n: 365 }].forEach((o) => {
+      [{ t: '1 mes', n: 30, m: 1 }, { t: '3 meses', n: 90, m: 3 }, { t: '6 meses', n: 180, m: 6 }, { t: '1 año', n: 365, m: 12 }].forEach((o) => {
         const b = el('button', 'opcion-renovar'); b.type = 'button';
         b.append(el('b', null, `+ ${o.t}`), el('small', null, `hasta el ${fechaCorta(base + o.n * DIA)}`));
-        b.onclick = () => fin(o.n); caja.append(b);
+        if (esRevendedor()) {
+          const coste = o.m * costeMes();
+          b.append(el('span', 'coste', textoCreditos(coste)));
+          if (coste > creditos()) { b.disabled = true; b.title = 'No tienes créditos suficientes'; }
+        }
+        b.onclick = () => fin(o); caja.append(b);
       });
       w.append(caja);
+      if (esRevendedor()) w.append(el('p', 'saldo-linea', `Tienes ${textoCreditos(creditos())}.`));
       const fila = el('div', 'botones'); const no = boton('Cancelar'); no.onclick = () => fin(null); fila.append(no); w.append(fila);
     });
     if (!dias) return;
     try {
-      const r = await api('/api/panel/emby/renovar', { id: u.id, nombre: u.nombre, dias });
-      aviso(`${u.nombre}: activa hasta el ${fechaCorta(r.caduca)}`, 'bien');
+      const r = await api('/api/panel/emby/renovar', { id: u.id, nombre: u.nombre, dias: dias.n, meses: dias.m });
+      aviso(`${u.nombre}: activa hasta el ${fechaCorta(r.caduca)}${r.coste ? ` · −${textoCreditos(r.coste)}` : ''}`, 'bien');
     } catch (e) { aviso(e.message, 'mal'); }
     await actualizar();
   }
@@ -739,11 +810,37 @@
       if (u?.caduca) fecha.value = new Date(u.caduca).toISOString().slice(0, 10);
       const opcionesDur = nueva ? DURACIONES : [{ texto: 'No cambiar', dias: null }, ...DURACIONES.map((o) => (o.dias > 0 ? { ...o, texto: `${o.texto} desde hoy` } : o))];
       const dur = el('div', 'grupo');
-      dur.append(pildoras(opcionesDur.map((o) => ({ texto: o.texto, valor: o.dias })), dias, (val) => { dias = val; fecha.hidden = val !== -1; if (val === -1) fecha.focus(); }), fecha);
-      sPlan.append(campo(nueva ? 'Duración' : 'Caducidad', dur, nueva ? 'Al caducar se desactiva sola; luego puedes renovarla.' : null, 'calendario'));
-      let pantallas = u ? u.pantallas : 1;
-      sPlan.append(campo('Pantallas a la vez', pildoras([1, 2, 3, 4, 0].map((k) => ({ texto: k ? String(k) : 'Sin límite', valor: k })), pantallas, (val) => { pantallas = val; }),
+      let meses = 1;
+      const coste = el('div', 'coste-resumen');
+      const pintarCoste = () => {
+        if (!esRevendedor() || !nueva) return;
+        const n = meses * costeMes(); const queda = creditos() - n;
+        coste.innerHTML = '';
+        coste.classList.toggle('falta', queda < 0);
+        coste.append(ico('moneda'), el('span', null, 'Coste'), el('b', null, textoCreditos(n)),
+          el('small', null, queda < 0 ? `te faltan ${-queda}` : `te ${queda === 1 ? 'queda' : 'quedan'} ${queda}`));
+      };
+      if (esRevendedor()) {
+        // Los revendedores pagan por meses (con créditos) y la fecha solo cambia al renovar
+        if (nueva) {
+          dur.append(pildoras([1, 3, 6, 12].map((m) => ({ texto: `${m === 12 ? '1 año' : m === 1 ? '1 mes' : `${m} meses`} · ${m * costeMes()} cr.`, valor: m })), meses, (val) => { meses = val; pintarCoste(); }));
+          sPlan.append(campo('Duración', dur, 'Al caducar se desactiva sola; luego puedes renovarla.', 'calendario'));
+        } else sPlan.append(campo('Caducidad', el('div', 'nota-campo', `${u.caduca ? `Caduca el ${fechaCorta(u.caduca)}.` : 'Sin caducidad.'} Para alargarla, usa «Renovar».`), null, 'calendario'));
+      } else {
+        dur.append(pildoras(opcionesDur.map((o) => ({ texto: o.texto, valor: o.dias })), dias, (val) => { dias = val; fecha.hidden = val !== -1; if (val === -1) fecha.focus(); }), fecha);
+        sPlan.append(campo(nueva ? 'Duración' : 'Caducidad', dur, nueva ? 'Al caducar se desactiva sola; luego puedes renovarla.' : null, 'calendario'));
+      }
+      let pantallas = u ? (esRevendedor() ? Math.max(1, Math.min(4, u.pantallas || 4)) : u.pantallas) : 1;
+      sPlan.append(campo('Pantallas a la vez', pildoras((esRevendedor() ? [1, 2, 3, 4] : [1, 2, 3, 4, 0]).map((k) => ({ texto: k ? String(k) : 'Sin límite', valor: k })), pantallas, (val) => { pantallas = val; }),
         'Cuántos dispositivos pueden ver a la vez.', 'pantalla'));
+      // El administrador puede crear la cuenta a nombre de un revendedor (sin gastar sus créditos)
+      let dueno = '';
+      if (nueva && rol === 'admin' && revs.length) {
+        const sel = el('select', 'selector ancho');
+        [['', 'Mía (sin revendedor)'], ...revs.map((x) => [x.id, `${x.nombre} · ${x.rol === 'super' ? 'superrevendedor' : 'revendedor'}`])].forEach(([v2, t2]) => { const o = el('option', null, t2); o.value = v2; sel.append(o); });
+        sel.onchange = () => { dueno = sel.value; };
+        sPlan.append(campo('Vendida por', sel, 'Aparecerá en el panel de ese revendedor. No gasta sus créditos.', 'red'));
+      }
 
       const sCont = seccion('Contenido');
       const todas = interruptor('Todas las bibliotecas', 'Incluye las que crees más adelante', u ? u.todas : true);
@@ -788,12 +885,15 @@
         const bibliotecas = todas.input.checked ? null : marcas.filter((c) => c.checked).map((c) => c.value);
         if (bibliotecas && !bibliotecas.length) return aviso('Marca al menos una biblioteca', 'mal');
         if (dias === -1 && !fecha.value) return aviso('Elige la fecha de caducidad', 'mal');
-        const caduca = dias === -1 ? fecha.value : dias === 0 ? null : dias ? new Date(Date.now() + dias * DIA).toISOString() : undefined;
+        if (esRevendedor() && nueva && meses * costeMes() > creditos()) return aviso(`No tienes créditos suficientes: tienes ${creditos()}`, 'mal');
+        const caduca = esRevendedor() ? (nueva ? new Date(Date.now() + (meses === 12 ? 365 : meses * 30) * DIA).toISOString() : undefined)
+          : dias === -1 ? fecha.value : dias === 0 ? null : dias ? new Date(Date.now() + dias * DIA).toISOString() : undefined;
         si.disabled = true; si.querySelector('span').textContent = nueva ? 'Creando…' : 'Guardando…';
         try {
           if (nueva) {
-            const r = await api('/api/panel/emby/crear', { usuario: usuario.value, clave: clave.value, caduca, pantallas, bibliotecas, descargas: desc.input.checked, nota: nota.value });
+            const r = await api('/api/panel/emby/crear', { usuario: usuario.value, clave: clave.value, caduca, meses, pantallas, bibliotecas, descargas: desc.input.checked, nota: nota.value, ...(dueno && { dueno }) });
             fin(true);
+            if (r.coste) aviso(`−${textoCreditos(r.coste)}`, 'bien');
             datosDeAcceso(r.usuario, clave.value, caduca);
           } else {
             const cambios = { nombre: usuario.value, pantallas, bibliotecas, descargas: desc.input.checked, nota: nota.value, ...(caduca !== undefined && { caduca }) };
@@ -804,10 +904,207 @@
           await actualizar();
         } catch (er) { aviso(er.message, 'mal'); si.disabled = false; si.querySelector('span').textContent = nueva ? 'Crear cuenta' : 'Guardar cambios'; }
       };
+      if (esRevendedor() && nueva) { pintarCoste(); pie.append(coste); }
       pie.append(no, si);
       w.append(pie);
       if (nueva) setTimeout(() => usuario.focus(), 60);
     }, { fija: true });
+  }
+
+  // ---------- Revendedores ----------
+  function vistaRevendedores(v) {
+    if (!revs.length) {
+      const c = el('div', 'tarjeta vacia');
+      c.append(ico('red', 'grande tono-morado'), el('h3', null, rol === 'admin' ? 'Todavía no hay revendedores' : 'Todavía no tienes revendedores'),
+        el('p', null, rol === 'admin'
+          ? 'Crea superrevendedores (que a su vez crean revendedores) o revendedores directos. Les das créditos y con ellos crean y renuevan cuentas: 1 crédito = 1 mes.'
+          : 'Crea revendedores y pásales créditos de tu saldo. Verás sus cuentas en «Cuentas».'));
+      const b = boton('Nuevo revendedor', 'primario', 'mas'); b.onclick = () => fichaRevendedor(); c.append(b);
+      v.append(c); return;
+    }
+    const tabla = el('div', 'tabla tabla-revendedores');
+    const cab = el('div', 'fila cab');
+    for (const t of ['Revendedor', 'Tipo', 'Créditos', 'Cuentas', 'Último acceso', '']) cab.append(el('div', 'celda', t));
+    tabla.append(cab);
+    for (const r of revs) {
+      const f = el('div', `fila ${r.activo ? '' : 'estado-desactivada'}`);
+      const c1 = el('div', 'celda c-nombre');
+      const q = el('div', 'linea-quien'); q.append(el('b', null, r.nombre), el('small', null, `@${r.usuario}${r.padreNombre && rol === 'admin' ? ` · de ${r.padreNombre}` : ''}`));
+      c1.append(avatar({ nombre: r.nombre, viendo: [] }), q);
+      const c2 = el('div', 'celda');
+      c2.append(insignia(!r.activo ? { tono: 'gris', texto: 'Suspendido' } : r.rol === 'super' ? { tono: 'morado', texto: 'Superrevendedor' } : { tono: 'acento', texto: 'Revendedor' }));
+      const c3 = el('div', 'celda c-creditos'); c3.append(el('b', r.creditos ? null : 'tono-mal', String(r.creditos)), el('small', null, 'créditos'));
+      const c4 = el('div', 'celda c-cuentas-rev'); c4.append(el('b', null, `${r.activas}`), el('small', null, `activas de ${r.cuentas}${r.hijos ? ` · ${r.hijos} revendedores` : ''}`));
+      const c5 = el('div', 'celda c-acceso'); c5.append(el('span', null, haceCuanto(r.ultimoAcceso)));
+      const c6 = el('div', 'celda c-acciones');
+      const dar = boton('Créditos', 'fino', 'moneda', 'Dar o quitar créditos'); dar.onclick = (e) => { e.stopPropagation(); darCreditos(r); };
+      const mas = boton(null, 'icono fino', 'puntos', 'Más acciones'); mas.onclick = (e) => { e.stopPropagation(); menuRevendedor(r, mas); };
+      c6.append(dar, mas);
+      f.append(c1, c2, c3, c4, c5, c6);
+      tabla.append(f);
+    }
+    v.append(tabla);
+    const total = revs.reduce((t, x) => t + x.creditos, 0);
+    v.append(el('div', 'pie-tabla', `${revs.length} ${revs.length === 1 ? 'revendedor' : 'revendedores'} · ${textoCreditos(total)} repartidos · 1 crédito = 1 mes de cuenta`));
+  }
+
+  function menuRevendedor(r, ancla) {
+    cerrarMenu();
+    const m = el('div', 'menu-flotante'); m.setAttribute('role', 'menu');
+    const op = (icono, texto, accion, clase = '') => { const b = el('button', clase); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.append(ico(icono), el('span', null, texto)); b.onclick = () => { cerrarMenu(); accion(); }; m.append(b); };
+    op('moneda', 'Dar o quitar créditos', () => darCreditos(r));
+    op('cuentas', 'Ver sus cuentas', () => { filtros.dueno = r.id; filtros.estado = 'todas'; irA('cuentas'); });
+    op('llave', 'Nueva contraseña', async () => {
+      const clave = await pedirTexto(`Nueva contraseña para ${r.nombre}`, 'Mínimo 8 caracteres. Se cerrarán sus sesiones abiertas.', claveAlAzar(), 'Cambiar contraseña');
+      if (!clave) return;
+      try { await api('/api/panel/emby/revendedores/clave', { id: r.id, clave }); datosRevendedor(r, clave, true); } catch (e) { aviso(e.message, 'mal'); }
+    });
+    op(r.activo ? 'pausa' : 'play', r.activo ? 'Suspender' : 'Reactivar', async () => {
+      if (r.activo && !(await confirmar(`Suspender a ${r.nombre}`, 'No podrá entrar en el panel (ni sus revendedores, si tiene). Las cuentas que ha vendido siguen funcionando.', 'Suspender', true))) return;
+      try { await api('/api/panel/emby/revendedores/activar', { id: r.id, activo: !r.activo }); aviso(r.activo ? `${r.nombre} suspendido` : `${r.nombre} reactivado`, 'bien'); } catch (e) { aviso(e.message, 'mal'); }
+      actualizar();
+    });
+    m.append(el('hr'));
+    op('papelera', 'Borrar revendedor', async () => {
+      const a = rol === 'admin' && !r.padre ? 'pasarán a ser tuyas' : `pasarán a ${r.padreNombre || 'quien lo creó'}`;
+      if (!(await confirmar(`Borrar a ${r.nombre}`, `Ya no podrá entrar. Sus ${r.cuentas} cuentas siguen funcionando y ${a}${r.padre ? `, igual que sus ${r.creditos} créditos` : ''}.`, 'Borrar revendedor', true))) return;
+      try { await api('/api/panel/emby/revendedores/borrar', { id: r.id }); aviso(`${r.nombre} borrado`, 'bien'); } catch (e) { aviso(e.message, 'mal'); }
+      actualizar();
+    }, 'peligro');
+    document.body.append(m);
+    const rr = ancla.getBoundingClientRect();
+    m.style.top = `${Math.max(10, Math.min(rr.bottom + 6, innerHeight - m.offsetHeight - 10))}px`;
+    m.style.left = `${Math.max(10, rr.right - m.offsetWidth)}px`;
+    menuAbierto = m;
+    m.querySelector('button').focus();
+  }
+
+  async function darCreditos(r) {
+    const cantidad = await ventana((w, fin) => {
+      const cab = el('div', 'cab-confirmar'); cab.append(ico('moneda', 'tono-morado'), el('h2', null, `Créditos de ${r.nombre}`));
+      w.append(cab, el('p', null, `Ahora tiene ${textoCreditos(r.creditos)}.${rol === 'super' ? ` Se descuentan de tu saldo (tienes ${creditos()}).` : ''}`));
+      let modo = 1;
+      const modos = pildoras([{ texto: 'Dar', valor: 1 }, { texto: 'Quitar', valor: -1 }], 1, (val) => { modo = val; pintar2(); });
+      const n = el('input'); n.type = 'number'; n.min = '1'; n.step = '1'; n.value = '10'; n.className = 'numero';
+      const rapidos = el('div', 'pildoras');
+      [5, 10, 25, 50, 100].forEach((k) => { const b = el('button', 'pildora', String(k)); b.type = 'button'; b.onclick = () => { n.value = String(k); pintar2(); }; rapidos.append(b); });
+      const res = el('div', 'coste-resumen');
+      const pintar2 = () => {
+        const k = Math.max(0, Math.floor(Number(n.value) || 0)) * modo;
+        const despues = r.creditos + k;
+        res.innerHTML = '';
+        res.classList.toggle('falta', despues < 0 || (rol === 'super' && k > creditos()));
+        res.append(ico('moneda'), el('span', null, 'Quedará con'), el('b', null, textoCreditos(Math.max(0, despues))),
+          el('small', null, rol === 'super' ? `tú: ${creditos() - k}` : ''));
+      };
+      n.oninput = pintar2;
+      w.append(modos, n, rapidos, res);
+      pintar2();
+      pieBotones(w, fin, 'Aplicar', 'primario', () => {
+        const k = Math.floor(Number(n.value) || 0);
+        if (k < 1) return aviso('Pon cuántos créditos', 'mal');
+        fin(k * modo);
+      });
+      n.focus(); n.select();
+    });
+    if (!cantidad) return;
+    try {
+      const x = await api('/api/panel/emby/revendedores/creditos', { id: r.id, cantidad });
+      aviso(`${r.nombre}: ${textoCreditos(x.creditos)}`, 'bien');
+    } catch (e) { aviso(e.message, 'mal'); }
+    actualizar();
+  }
+
+  function fichaRevendedor() {
+    lateral((w, fin) => {
+      const cab = el('header', 'lateral-cab');
+      const t = el('div', 'lateral-titulo'); t.append(el('h2', null, 'Nuevo revendedor'), el('p', null, 'Podrá entrar en este panel y vender cuentas con sus créditos'));
+      const x = boton(null, 'icono', 'cerrar', 'Cerrar'); x.onclick = () => fin(null);
+      cab.append(t, x);
+      const cuerpo = el('div', 'lateral-cuerpo');
+      w.append(cab, cuerpo);
+      const seccion = (titulo) => { const s = el('section', 'seccion-form'); s.append(el('h3', null, titulo)); cuerpo.append(s); return s; };
+      const s1 = seccion('Datos');
+      const nombre = el('input'); nombre.placeholder = 'Nombre que verás (por ejemplo: Juan Tienda)';
+      const usuario = el('input'); usuario.placeholder = 'Usuario para entrar (por ejemplo: juan.tienda)'; usuario.autocapitalize = 'none'; usuario.spellcheck = false; usuario.autocomplete = 'off';
+      const fila = el('div', 'fila-clave');
+      const clave = el('input'); clave.value = claveAlAzar(); clave.className = 'mono'; clave.spellcheck = false; clave.autocomplete = 'new-password';
+      const otra = boton(null, 'icono', 'renovar', 'Generar otra contraseña'); otra.onclick = () => { clave.value = claveAlAzar(); };
+      fila.append(clave, otra);
+      s1.append(campo('Nombre', nombre), campo('Usuario', usuario, '3 a 20 caracteres: letras, números, punto o guion.'), campo('Contraseña', fila, 'Se muestra una sola vez al terminar.'));
+      let tipo = 'revendedor';
+      if (rol === 'admin') {
+        const s2 = seccion('Tipo');
+        const op = el('div', 'tipos-revendedor');
+        const tarjetaTipo = (valor, titulo, texto, icono) => {
+          const b = el('button', `tipo-rev${valor === tipo ? ' activa' : ''}`); b.type = 'button';
+          b.append(ico(icono), el('b', null, titulo), el('small', null, texto));
+          b.onclick = () => { tipo = valor; op.querySelectorAll('.tipo-rev').forEach((y) => y.classList.toggle('activa', y === b)); };
+          return b;
+        };
+        op.append(tarjetaTipo('revendedor', 'Revendedor', 'Crea y renueva cuentas con sus créditos.', 'cuentas'),
+          tarjetaTipo('super', 'Superrevendedor', 'Además crea sus propios revendedores y les pasa créditos.', 'red'));
+        s2.append(op);
+      }
+      const s3 = seccion('Créditos iniciales');
+      const n = el('input'); n.type = 'number'; n.min = '0'; n.step = '1'; n.value = '0'; n.className = 'numero';
+      s3.append(campo('Créditos', n, rol === 'super' ? `Se descuentan de tu saldo (tienes ${creditos()}). 1 crédito = 1 mes de cuenta.` : '1 crédito = 1 mes de cuenta. Puedes darle más cuando quieras.', 'moneda'));
+      const pie = el('footer', 'lateral-pie');
+      const no = boton('Cancelar'); no.onclick = () => fin(null);
+      const si = boton('Crear revendedor', 'primario', 'mas');
+      si.onclick = async () => {
+        const k = Math.max(0, Math.floor(Number(n.value) || 0));
+        si.disabled = true;
+        try {
+          const r = await api('/api/panel/emby/revendedores/crear', { nombre: nombre.value, usuario: usuario.value, clave: clave.value, rol: tipo, creditos: k });
+          fin(true);
+          datosRevendedor({ nombre: nombre.value.trim() || r.usuario, usuario: r.usuario, rol: tipo, creditos: k }, clave.value);
+          actualizar();
+        } catch (e) { aviso(e.message, 'mal'); si.disabled = false; }
+      };
+      pie.append(no, si);
+      w.append(pie);
+      setTimeout(() => nombre.focus(), 60);
+    }, { fija: true });
+  }
+
+  // Datos para que el revendedor entre en el panel
+  function datosRevendedor(r, clave, soloClave) {
+    ventana((w, fin) => {
+      const cab = el('div', 'cab-confirmar'); cab.append(ico('ok', 'tono-bien'), el('h2', null, soloClave ? 'Contraseña cambiada' : 'Revendedor creado'));
+      w.append(cab, el('p', null, 'Pásale estos datos por mensaje privado. La contraseña no se vuelve a mostrar.'));
+      const panel = `${location.origin}${location.pathname}`;
+      const raya = '━━━━━━━━━━━━━━━━━━';
+      const texto = [
+        `🧾  TU PANEL DE ${r.rol === 'super' ? 'SUPERREVENDEDOR' : 'REVENDEDOR'}`, raya, '',
+        '🌐  Panel', `      ${panel}`, '',
+        '👤  Usuario', `      ${r.usuario}`, '',
+        '🔑  Contraseña', `      ${clave}`, '',
+        ...(soloClave ? [] : ['💰  Créditos', `      ${r.creditos} (1 crédito = 1 mes de cuenta)`, '']),
+        raya, '',
+        '📲  CÓMO EMPEZAR', '',
+        '▸ Entra en el panel con tu usuario y contraseña.',
+        '▸ Pulsa «Nueva cuenta» para crear la cuenta de un cliente.',
+        '▸ Cada mes de cuenta gasta un crédito.',
+        '', raya,
+      ].join('\n');
+      const t = el('div', 'credencial');
+      const linea = (titulo, valor, mono) => {
+        const x = el('div', 'credencial-linea');
+        const c = boton(null, 'icono fino', 'copiar', `Copiar ${titulo.toLowerCase()}`);
+        c.onclick = () => navigator.clipboard.writeText(valor).then(() => aviso(`${titulo} copiado`, 'bien'), () => {});
+        x.append(el('span', null, titulo), el('b', mono ? 'mono' : null, valor), c);
+        return x;
+      };
+      t.append(linea('Panel', panel.replace(/^https?:\/\//, '')), linea('Usuario', r.usuario, true), linea('Contraseña', clave, true));
+      w.append(t);
+      const copiar = boton('Copiar mensaje completo', 'primario', 'copiar');
+      copiar.onclick = () => navigator.clipboard.writeText(texto).then(() => { copiar.querySelector('span').textContent = 'Copiado'; }, () => aviso('No se pudo copiar: selecciónalo a mano', 'mal'));
+      const vista = el('details', 'mensaje'); vista.append(el('summary', null, 'Ver el mensaje'), el('pre', null, texto));
+      const fila = el('div', 'botones'); const ok = boton('Hecho'); ok.onclick = () => fin(null); fila.append(ok, copiar);
+      w.append(vista, fila);
+      copiar.focus();
+    }, { fija: true, ancho: 'mediana' });
   }
 
   // Los datos para entrar, listos para copiar y mandar (la contraseña no se vuelve a ver)

@@ -217,3 +217,64 @@
   .avisos { left: 16px; right: 16px; bottom: 86px; align-items: stretch; }
   .aviso { max-width: none; }
 }
+
+/* ---------- Revendedores y créditos ---------- */
+.insignia.tono-acento { background: var(--acento-f); }
+.kpi.tono-morado { --k: var(--morado); --k-f: var(--morado-f); }
+.saldo { padding: 14px; border-radius: 12px; border: 1px solid rgba(167,139,250,.3); background: linear-gradient(135deg, var(--morado-f), transparent 70%), var(--panel); display: flex; flex-direction: column; gap: 2px; }
+.saldo-cab { display: flex; align-items: center; gap: 7px; color: var(--suave); font-size: 12.5px; font-weight: 600; }
+.saldo-cab .ico { width: 16px; height: 16px; color: var(--morado); }
+.saldo > b { font-size: 30px; line-height: 1.15; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.saldo > small { color: var(--tenue); font-size: 11.5px; }
+.saldo-movil { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; margin-right: 8px; border-radius: 99px; background: var(--morado-f); color: var(--morado); font-weight: 700; }
+.saldo-movil .ico { width: 16px; height: 16px; }
+.chip-creditos { flex: none; min-width: 42px; height: 24px; padding: 0 8px; border-radius: 7px; display: grid; place-items: center; font-weight: 700; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.chip-creditos.mas { background: var(--bien-f); color: var(--bien); }
+.chip-creditos.menos { background: var(--mal-f); color: var(--mal); }
+.linea-quien small .vendedor { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; margin-right: 6px; border-radius: 5px; background: var(--morado-f); color: var(--morado); font-size: 11px; font-weight: 600; }
+.opcion-renovar { position: relative; }
+.opcion-renovar .coste { position: absolute; top: 12px; right: 12px; font-size: 11.5px; font-weight: 700; color: var(--morado); }
+.opcion-renovar:disabled { opacity: .45; cursor: not-allowed; }
+.opcion-renovar:disabled:hover { border-color: var(--borde2); background: var(--fondo2); }
+.saldo-linea { font-size: 13px; }
+.coste-resumen { display: flex; align-items: center; gap: 8px; margin-right: auto; padding: 0 12px; height: 38px; border-radius: 10px; background: var(--morado-f); color: var(--morado); font-size: 13px; }
+.coste-resumen .ico { width: 16px; height: 16px; }
+.coste-resumen span { color: var(--suave); }
+.coste-resumen b { color: var(--texto); }
+.coste-resumen small { color: var(--suave); }
+.coste-resumen.falta { background: var(--mal-f); color: var(--mal); }
+.coste-resumen.falta small { color: var(--mal); }
+.ventana .coste-resumen { margin: 0; }
+.nota-campo { padding: 12px 14px; border-radius: 10px; background: var(--fondo2); border: 1px solid var(--borde); color: var(--suave); }
+.selector { height: 38px; padding: 0 34px 0 12px; border-radius: 10px; border: 1px solid var(--borde2); color: var(--texto); font-size: 13.5px; cursor: pointer; appearance: none;
+  background: var(--fondo2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa1af' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center / 16px; max-width: 240px; }
+.selector.ancho { width: 100%; max-width: none; height: 40px; }
+.selector:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px var(--acento-f); }
+input.numero { height: 46px; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+input[type=number] { width: 100%; padding: 0 12px; border-radius: 10px; border: 1px solid var(--borde2); background: var(--fondo2); color: var(--texto); }
+.tipos-revendedor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.tipo-rev { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px; border-radius: 12px; border: 1px solid var(--borde2); background: var(--fondo2); color: var(--texto); text-align: left; cursor: pointer; }
+.tipo-rev .ico { width: 20px; height: 20px; color: var(--suave); margin-bottom: 4px; }
+.tipo-rev small { color: var(--suave); font-size: 12.5px; line-height: 1.4; }
+.tipo-rev.activa { border-color: var(--acento); background: var(--acento-f); box-shadow: inset 0 0 0 1px var(--acento); }
+.tipo-rev.activa .ico { color: var(--acento2); }
+.tabla-revendedores .fila { grid-template-columns: minmax(200px, 2fr) 150px 110px minmax(140px, 1.2fr) 120px 150px; }
+.tabla-revendedores .fila.cab .celda { cursor: default; }
+.c-creditos, .c-cuentas-rev { display: flex; flex-direction: column; line-height: 1.2; }
+.c-creditos b { font-size: 20px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.c-cuentas-rev b { font-size: 15px; }
+.c-creditos small, .c-cuentas-rev small { color: var(--tenue); font-size: 12px; }
+@media (max-width: 980px) {
+  .tabla-revendedores .fila { grid-template-columns: minmax(170px, 1.6fr) 140px 100px 150px; }
+  .tabla-revendedores .c-cuentas-rev, .tabla-revendedores .c-acceso { display: none; }
+}
+@media (max-width: 760px) {
+  .tabla-revendedores .fila { grid-template-columns: minmax(0, 1fr) auto; }
+  .tabla-revendedores .fila > .celda:nth-child(2) { grid-column: 1; grid-row: 2; padding-left: 48px; }
+  .tabla-revendedores .c-creditos { grid-column: 2; grid-row: 2; align-items: flex-end; }
+  .tabla-revendedores .c-acciones { grid-column: 2; grid-row: 1; }
+  .coste-resumen small { display: none; }
+  .lateral-pie { flex-wrap: wrap; }
+  .lateral-pie .coste-resumen { flex: 1 0 100%; margin: 0; }
+}
+.chip-creditos.ajeno { background: var(--panel3); color: var(--suave); }
