@@ -187,7 +187,7 @@
 
   // ---------- Entrar y salir ----------
   function salir() {
-    if (token?.startsWith('rv_')) fetch(`${API}/api/panel/emby/salir`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: '{}' }).catch(() => {});
+    if (token) fetch(`${API}${token.startsWith('rv_') ? '/api/panel/emby/salir' : '/api/panel/salir'}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: '{}' }).catch(() => {});
     token = null;
     try { localStorage.removeItem('gestor-token'); } catch {}
     pila.slice().forEach((c) => c(null));
@@ -202,7 +202,7 @@
     const b = e.target.querySelector('button'); b.disabled = true; b.textContent = 'Entrando…';
     try {
       const cred = { usuario: $('#e-usuario').value, clave: $('#e-clave').value };
-      // Primero como administrador de MorvehTV; si no, como revendedor
+      // Primero como administrador del panel; si no, como revendedor
       let r;
       try { r = await api('/api/panel/entrar', cred); } catch (e1) {
         if (![401, 403].includes(e1.status)) throw e1;
