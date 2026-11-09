@@ -693,7 +693,7 @@
   //   Película → CARPETA/Título (Año)/Título (Año).mkv
   //   Serie    → CARPETA/Serie (Año)/Temporada 1/Serie - S01E02 - Título.mkv
   const sub = { tipo: 'pelicula', carpeta: '', titulo: '', ano: '', serie: '', temporada: '1', otra: '', archivos: [], cola: [], raiz: null, subcarpetas: {}, error: '',
-    ficha: null, busca: '', resultados: null, buscando: false, errorFicha: '', detectado: null, eps: null };
+    ficha: null, busca: '', resultados: null, buscando: false, errorFicha: '', detectado: null, eps: null, manual: {} };
   // Código para el nombre de la carpeta: con él Emby acierta siempre la ficha
   const etiquetaId = (f) => (f?.imdb ? `[imdbid=${f.imdb}]` : f?.tmdb ? `[tmdbid=${f.tmdb}]` : '');
   const sinEtiquetas = (s) => String(s).replace(/\s*\[(imdbid|tmdbid|tvdbid)[=-][^\]]*\]/gi, '').replace(/\s*\((19|20)\d{2}\)$/, '').trim();
@@ -939,7 +939,8 @@
     const x = sub.ficha;
     const ano = x?.ano ?? /\((\d{4})\)/.exec(sub.serie)?.[1] ?? '';
     const imdb = x?.imdb ?? /tt\d{6,10}/i.exec(sub.serie)?.[0] ?? '';
-    return { imdb, nombre: x?.nombre ?? sinEtiquetas(sub.serie), ano: ano ? String(ano) : '', carpeta: sub.carpeta, serie: limpio(sub.serie) };
+    const tmdb = x?.tmdb ?? /tmdbid=(\d+)/i.exec(sub.serie)?.[1] ?? '';
+    return { tmdb, imdb, nombre: x?.nombre ?? sinEtiquetas(sub.serie), ano: ano ? String(ano) : '', carpeta: sub.carpeta, serie: limpio(sub.serie) };
   }
   async function cargarEpisodios(forzar = false) {
     const p = paramsEpisodios(); const clave = JSON.stringify(p);
@@ -965,10 +966,31 @@
     if (!eps || eps.cargando) { caja.append(el('p', 'ayuda', 'Buscando los episodios de la serie…')); return caja; }
     cab.append(recargar);
     if (eps.error) { caja.append(el('p', 'ayuda tono-mal', eps.error)); return caja; }
-    const temps = eps.datos.temporadas;
+    let temps = eps.datos.temporadas;
     if (!temps.length) {
-      caja.append(el('p', 'ayuda', 'No se ha encontrado la lista de episodios de esta serie. Puedes subirlos igual: elige o arrastra los archivos abajo.'));
-      return caja;
+      // Sin lista: se ponen los huecos a mano (cuántos episodios tiene cada temporada), más lo que ya
+      // está subido en la nube
+      const ya = eps.datos.ya ?? [];
+      const total = {};
+      for (const k of ya) { const [s, e] = k.split('x').map(Number); total[s] = Math.max(total[s] ?? 0, e); }
+      for (const [s, n] of Object.entries(sub.manual[eps.clave] ?? {})) total[s] = Math.max(total[s] ?? 0, n);
+      temps = Object.entries(total).map(([s, n]) => ({ n: Number(s), episodios: Array.from({ length: n }, (_, i) => ({ e: i + 1, titulo: '', fecha: null, ya: ya.includes(`${s}x${i + 1}`) })) }))
+        .sort((a, b) => a.n - b.n);
+      caja.append(el('p', 'ayuda', `No se ha encontrado la lista de episodios de esta serie${!eps.datos.tmdb && rol !== 'subidor' ? ' (sin clave de TMDB en la VPS solo se mira TVmaze, que tiene poco contenido español)' : ''}. Pon cuántos episodios tiene la temporada y te pongo los huecos:`));
+      const f = el('div', 'fila-manual');
+      const campoN = (txt, v, ph) => { const l = el('label', 'corto', txt); const i = el('input'); i.value = v; i.inputMode = 'numeric'; i.placeholder = ph; i.oninput = () => { i.value = i.value.replace(/\D/g, '').slice(0, 3); }; l.append(i); return [l, i]; };
+      const [lt, it] = campoN('Temporada', String(eps.temp ?? (Number(sub.temporada) || 1)), '1');
+      const [le, ie] = campoN('Episodios', String(total[Number(it.value)] || ''), '8');
+      const poner = boton('Poner huecos', 'fino', 'mas');
+      poner.onclick = () => {
+        const t = Number(it.value); const n = Math.min(Number(ie.value) || 0, 500);
+        if (!it.value || !n) { ie.focus(); return; }
+        sub.manual[eps.clave] = { ...(sub.manual[eps.clave] ?? {}), [t]: n };
+        sub.eps.temp = t; sub.temporada = String(t); pintar();
+      };
+      ie.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); poner.click(); } };
+      f.append(lt, le, poner); caja.append(f);
+      if (!temps.length) return caja;
     }
     // Temporada que se muestra: la elegida, la del campo «Temporada» o la primera a la que le falte algo
     const nums = temps.map((t) => t.n);

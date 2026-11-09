@@ -358,3 +358,6 @@ select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px
 .fila-ep > .chip { flex: none; }
 .fila-ep > .boton { flex: none; }
 .bloque-eps > .boton { align-self: flex-start; }
+.fila-manual { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.fila-manual label { width: 110px; }
+.fila-manual .boton { height: 40px; }
