@@ -150,11 +150,16 @@
     if (u.admin) return { clave: 'admin', texto: 'Administrador', tono: 'morado' };
     if (u.caducada) return { clave: 'caducada', texto: 'Caducada', tono: 'mal' };
     if (u.desactivada) return { clave: 'desactivada', texto: 'Desactivada', tono: 'gris' };
+    if (u.demo) return { clave: 'activa', texto: 'En prueba', tono: 'acento' };
     if (u.caduca && diasHasta(u.caduca) <= 7) return { clave: 'pronto', texto: 'Caduca pronto', tono: 'aviso' };
     return { clave: 'activa', texto: 'Activa', tono: 'bien' };
   }
+  const fechaHora = (f) => new Date(f).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   function textoCaducidad(u) {
     if (!u.caduca) return 'Sin caducidad';
+    // Demos: en horas y minutos
+    const ms = new Date(u.caduca).getTime() - Date.now();
+    if (u.demo && ms > 0 && ms < 3 * DIA) { const total = Math.ceil(ms / 60000); const h = Math.floor(total / 60); const m = total % 60; return h ? `Quedan ${h} h${m ? ` ${m} min` : ''}` : `Quedan ${m} min`; }
     const n = diasHasta(u.caduca);
     if (n < 0) return `Caducó hace ${-n} ${-n === 1 ? 'día' : 'días'}`;
     if (n === 0) return 'Caduca hoy';
@@ -166,7 +171,7 @@
     if (!u.caduca) return null;
     const fin = new Date(u.caduca).getTime(); const ini = new Date(u.desde || u.creada || Date.now()).getTime();
     if (fin <= Date.now()) return 0;
-    return Math.max(3, Math.min(100, Math.round(((fin - Date.now()) / Math.max(DIA, fin - ini)) * 100)));
+    return Math.max(3, Math.min(100, Math.round(((fin - Date.now()) / Math.max(u.demo ? 60000 : DIA, fin - ini)) * 100)));
   }
   const insignia = (e) => { const s = el('span', `insignia tono-${e.tono}`); s.append(el('i'), document.createTextNode(e.texto)); return s; };
   const colorDe = (n) => { let h = 0; for (const ch of String(n)) h = (h * 31 + ch.charCodeAt(0)) % 360; return `hsl(${h} 52% 46%)`; };
@@ -183,7 +188,7 @@
     const p = restante(u);
     const linea = el('div', 'caducidad-texto');
     linea.append(el('b', null, textoCaducidad(u)));
-    if (u.caduca) linea.append(el('small', null, fechaCorta(u.caduca)));
+    if (u.caduca) linea.append(el('small', null, u.demo ? fechaHora(u.caduca) : fechaCorta(u.caduca)));
     caja.append(linea);
     if (p != null) { const b = el('div', `barra tono-${e.clave === 'pronto' ? 'aviso' : e.clave === 'caducada' ? 'mal' : e.clave === 'desactivada' ? 'gris' : 'bien'}`); const r = el('i'); r.style.width = `${p}%`; b.append(r); caja.append(b); }
     return caja;
@@ -369,7 +374,10 @@
     if (vista === 'subir') { /* sin botón de nueva cuenta */ }
     else if (vista === 'equipo') { const n = boton('Nuevo subidor', 'primario', 'mas'); n.onclick = () => fichaSubidor(); acc.append(n); }
     else if (vista === 'revendedores') { const n = boton('Nuevo revendedor', 'primario', 'mas'); n.onclick = () => fichaRevendedor(); acc.append(n); }
-    else if (d?.configurado) { const n = boton('Nueva cuenta', 'primario', 'mas'); n.onclick = () => fichaCuenta(null); acc.append(n); }
+    else if (d?.configurado) {
+      if (d.demo) { const dm = boton('Demo', '', 'reloj', 'Crear una cuenta de prueba de unas horas'); dm.onclick = () => fichaDemo(); acc.append(dm); }
+      const n = boton('Nueva cuenta', 'primario', 'mas'); n.onclick = () => fichaCuenta(null); acc.append(n);
+    }
     c.append(t, acc);
     return c;
   }
@@ -590,7 +598,9 @@
     const e = estadoDe(u);
     const f = el('div', `fila estado-${e.clave}`);
     const c1 = el('div', 'celda c-nombre');
-    const q = el('div', 'linea-quien'); q.append(el('b', null, u.nombre));
+    const q = el('div', 'linea-quien');
+    const nom = el('b', null, u.nombre); if (u.demo) nom.append(el('span', 'chip-demo', 'Demo'));
+    q.append(nom);
     const vendedor = u.dueno && revs.some((x) => x.id === u.dueno) ? u.duenoNombre : null;
     if (u.viendo.length) q.append(el('small', 'tono-vivo', `▶ ${u.viendo[0].titulo}`));
     else if (vendedor || u.nota) {
@@ -1795,6 +1805,63 @@
     }, { fija: true });
   }
 
+  // ---------- Demo: cuenta de prueba de unas horas, gratis y con 1 pantalla ----------
+  const textoHoras = (h) => (h === 1 ? '1 hora' : h % 24 === 0 && h > 24 ? `${h / 24} días` : `${h} horas`);
+  function fichaDemo() {
+    cerrarMenu();
+    const conf = d.demo;
+    lateral((w, fin) => {
+      const cab = el('header', 'lateral-cab');
+      const t = el('div', 'lateral-titulo'); t.append(el('h2', null, 'Nueva demo'), el('p', null, 'Una cuenta de prueba gratis, de unas horas'));
+      const x = boton(null, 'icono', 'cerrar', 'Cerrar'); x.onclick = () => fin(null);
+      cab.append(t, x);
+      const cuerpo = el('div', 'lateral-cuerpo');
+      w.append(cab, cuerpo);
+      const seccion = (titulo) => { const s2 = el('section', 'seccion-form'); s2.append(el('h3', null, titulo)); cuerpo.append(s2); return s2; };
+      // Límites del revendedor
+      let sinCupo = false;
+      if (conf.alDiaMax) {
+        const quedan = Math.max(0, conf.alDiaMax - (conf.hoy ?? 0));
+        const activas = normales().filter((u) => u.demo && !u.caducada).length;
+        sinCupo = !quedan || activas >= conf.activasMax;
+        const c = el('div', `coste-resumen${sinCupo ? ' falta' : ''}`);
+        c.append(ico('reloj'), el('span', null, 'Demos'), el('b', null, `te ${quedan === 1 ? 'queda' : 'quedan'} ${quedan} hoy · ${activas} de ${conf.activasMax} activas`));
+        cuerpo.append(c);
+      }
+      const sAcceso = seccion('Acceso');
+      const usuario = el('input'); usuario.value = `demo${Math.floor(1000 + Math.random() * 9000)}`; usuario.autocomplete = 'off'; usuario.spellcheck = false; usuario.autocapitalize = 'none';
+      sAcceso.append(campo('Usuario', usuario, 'Puedes cambiarlo. No aparece en la pantalla de inicio de Emby.'));
+      const fila = el('div', 'fila-clave');
+      const clave = el('input'); clave.value = claveAlAzar(); clave.autocomplete = 'new-password'; clave.spellcheck = false; clave.className = 'mono';
+      const otra = boton(null, 'icono', 'renovar', 'Generar otra contraseña'); otra.onclick = () => { clave.value = claveAlAzar(); };
+      fila.append(clave, otra);
+      sAcceso.append(campo('Contraseña', fila, 'Se muestra una sola vez al terminar, para que se la pases.'));
+      const sPlan = seccion('Prueba');
+      let horas = conf.horas.includes(24) ? 24 : conf.horas[0];
+      sPlan.append(campo('Duración', pildoras(conf.horas.map((h) => ({ texto: textoHoras(h), valor: h })), horas, (val) => { horas = val; }),
+        'Gratis, 1 pantalla y sin descargas. Al acabar se desactiva sola y al día siguiente se borra. Si el cliente paga, «Renovar» la convierte en una cuenta normal.', 'reloj'));
+      const sNota = seccion('Nota interna');
+      const nota = el('textarea'); nota.placeholder = 'Para quién es la demo…'; nota.maxLength = 200; nota.rows = 2;
+      sNota.append(nota);
+      const pie = el('footer', 'lateral-pie');
+      const no = boton('Cancelar'); no.onclick = () => fin(null);
+      const si = boton('Crear demo', 'primario', 'reloj');
+      si.onclick = async () => {
+        si.disabled = true; si.querySelector('span').textContent = 'Creando…';
+        try {
+          const r = await api('/api/panel/emby/demo', { usuario: usuario.value, clave: clave.value, horas, nota: nota.value || `Demo de ${textoHoras(horas)}` });
+          fin(true);
+          datosDeAcceso(r.usuario, clave.value, r.caduca, false, horas);
+          await actualizar();
+        } catch (er) { aviso(er.message, 'mal'); si.disabled = false; si.querySelector('span').textContent = 'Crear demo'; }
+      };
+      if (sinCupo) si.disabled = true;
+      pie.append(no, si);
+      w.append(pie);
+      setTimeout(() => usuario.select(), 60);
+    }, { fija: true });
+  }
+
   // ---------- Revendedores ----------
   function vistaRevendedores(v) {
     if (!revs.length) {
@@ -1992,14 +2059,14 @@
   }
 
   // Los datos para entrar, listos para copiar y mandar (la contraseña no se vuelve a ver)
-  function datosDeAcceso(usuario, clave, caduca, soloClave) {
+  function datosDeAcceso(usuario, clave, caduca, soloClave, demoHoras = 0) {
     ventana((w, fin) => {
-      const cab = el('div', 'cab-confirmar'); cab.append(ico('ok', 'tono-bien'), el('h2', null, soloClave ? 'Contraseña cambiada' : 'Cuenta creada'));
+      const cab = el('div', 'cab-confirmar'); cab.append(ico('ok', 'tono-bien'), el('h2', null, soloClave ? 'Contraseña cambiada' : demoHoras ? 'Demo creada' : 'Cuenta creada'));
       w.append(cab, el('p', null, 'Pásale estos datos por mensaje privado. La contraseña no se vuelve a mostrar.'));
       const servidor = d.servidor.replace(/^https?:\/\//, '');
       const raya = '━━━━━━━━━━━━━━━━━━';
       const texto = [
-        `📺  TU CUENTA DE ${(d.nombreServidor || 'Emby').toUpperCase()}`,
+        demoHoras ? `🎁  TU DEMO DE ${(d.nombreServidor || 'Emby').toUpperCase()} · ${textoHoras(demoHoras).toUpperCase()}` : `📺  TU CUENTA DE ${(d.nombreServidor || 'Emby').toUpperCase()}`,
         raya,
         '',
         '🌐  Servidor',
@@ -2012,7 +2079,8 @@
         `      ${clave}`,
         '',
         caduca ? '📅  Válida hasta' : '📅  Caducidad',
-        `      ${caduca ? fechaCorta(caduca) : 'Sin caducidad'}`,
+        `      ${caduca ? (demoHoras ? fechaHora(caduca) : fechaCorta(caduca)) : 'Sin caducidad'}`,
+        ...(demoHoras ? ['', '      1 pantalla. Si te gusta, pídenos tu cuenta completa.'] : []),
         '',
         raya,
         '',
@@ -2038,7 +2106,7 @@
         return x;
       };
       t.append(linea('Servidor', servidor), linea('Usuario', usuario, true), linea('Contraseña', clave, true));
-      const vence = el('div', 'credencial-linea'); vence.append(el('span', null, 'Caducidad'), el('b', null, caduca ? fechaCorta(caduca) : 'Sin caducidad'), el('i'));
+      const vence = el('div', 'credencial-linea'); vence.append(el('span', null, 'Caducidad'), el('b', null, caduca ? (demoHoras ? fechaHora(caduca) : fechaCorta(caduca)) : 'Sin caducidad'), el('i'));
       t.append(vence);
       w.append(t);
       const copiar = boton('Copiar mensaje completo', 'primario', 'copiar');
