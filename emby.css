@@ -364,3 +364,37 @@ select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px
 
 /* Demos */
 .chip-demo { display: inline-block; margin-left: 7px; padding: 1px 7px; border-radius: 6px; background: var(--acento-f); color: var(--acento2); font-size: 11px; font-weight: 700; vertical-align: 1px; }
+
+/* ---------- Móvil: crear cuentas cómodamente ---------- */
+#menu .corto { display: none; }
+@media (max-width: 760px) {
+  /* Con letra de menos de 16 px el iPhone hace zoom al tocar un campo y descoloca la pantalla */
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea, .selector { font-size: 16px !important; }
+  input:not([type="checkbox"]):not([type="radio"]), select, .selector { height: 44px; }
+  /* Menú de abajo: nombres cortos, enteros */
+  #menu .largo { display: none; }
+  #menu .corto { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; }
+  #menu a { padding: 6px 1px; }
+  /* Cabecera: título arriba y los botones debajo, con su texto («Demo», «Nueva cuenta») */
+  .cab-pagina { flex-wrap: wrap; gap: 12px; }
+  .cab-texto { flex: 1 1 auto; }
+  .cab-acciones { flex: 1 0 100%; }
+  .cab-acciones .boton { height: 44px; }
+  .cab-acciones .boton.primario { flex: 1; width: auto; padding: 0 16px; }
+  .cab-acciones .boton.primario > span:not(.ico) { display: inline; }
+  .cab-acciones .boton:not(.icono):not(.primario) { flex: 0 1 auto; }
+  /* Fichas (nueva cuenta, demo…): botones grandes y el pie siempre a mano */
+  .lateral { height: 100%; height: 100dvh; border-left: 0; }
+  .lateral-cuerpo { padding-bottom: 36px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+  .lateral-pie { gap: 10px; }
+  .lateral-pie > .boton { flex: 1; height: 48px; font-size: 15px; }
+  .grupo .pildora, .pildoras > button, .pildoras > .pildora { min-height: 42px; }
+  .fila-clave .boton.icono { width: 44px; height: 44px; flex: none; }
+  /* Ventanas (datos de la cuenta creada): caben con la barra del navegador */
+  .ventana { max-height: 88vh; max-height: 88dvh; }
+  .velo-ventana { padding: 12px; align-items: flex-end; }
+  .ventana .botones { flex-wrap: wrap; }
+  .ventana .botones > .boton { flex: 1 1 140px; height: 46px; }
+  .credencial-linea { gap: 8px; }
+  .credencial-linea .boton.icono { width: 40px; height: 40px; flex: none; }
+}

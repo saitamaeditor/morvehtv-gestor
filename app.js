@@ -236,13 +236,13 @@
   let e2Activo = false;  // el servidor tiene las claves de e2 (para «Subir»)
   const filtros = { estado: 'todas', busca: '', orden: 'nombre', sube: true, dueno: '' };
   const TODAS_VISTAS = {
-    resumen: { titulo: 'Resumen', sub: 'Cómo está tu servidor de un vistazo', icono: 'resumen' },
+    resumen: { titulo: 'Resumen', corto: 'Inicio', sub: 'Cómo está tu servidor de un vistazo', icono: 'resumen' },
     cuentas: { titulo: 'Cuentas', sub: 'Crea, renueva y controla quién entra en tu Emby', icono: 'cuentas' },
-    revendedores: { titulo: 'Revendedores', sub: 'Quién vende cuentas y cuántos créditos tiene', icono: 'red' },
-    directo: { titulo: 'En directo', sub: 'Lo que se está viendo ahora mismo', icono: 'directo' },
+    revendedores: { titulo: 'Revendedores', corto: 'Revend.', sub: 'Quién vende cuentas y cuántos créditos tiene', icono: 'red' },
+    directo: { titulo: 'En directo', corto: 'Directo', sub: 'Lo que se está viendo ahora mismo', icono: 'directo' },
     subir: { titulo: 'Subir', sub: 'Sube películas y series a e2, ya con el nombre que entiende Emby', icono: 'subir' },
-    equipo: { titulo: 'Subidores', sub: 'Personas que pueden subir contenido a e2, sin poder tocar nada más', icono: 'nube' },
-    actividad:{ titulo: 'Actividad', sub: 'Todo lo que se ha hecho desde este panel', icono: 'actividad' },
+    equipo: { titulo: 'Subidores', corto: 'Equipo', sub: 'Personas que pueden subir contenido a e2, sin poder tocar nada más', icono: 'nube' },
+    actividad:{ titulo: 'Actividad', corto: 'Registro', sub: 'Todo lo que se ha hecho desde este panel', icono: 'actividad' },
   };
   let VISTAS = TODAS_VISTAS;
   const NOMBRE_ROL = { admin: 'Administrador', super: 'Superrevendedor', revendedor: 'Revendedor', subidor: 'Subidor' };
@@ -290,7 +290,8 @@
     const menu = $('#menu'); menu.innerHTML = '';
     for (const [k, x] of Object.entries(VISTAS)) {
       const a = el('a', vista === k ? 'activa' : ''); a.href = `#${k}`;
-      a.append(ico(x.icono), el('span', null, x.titulo));
+      // En el móvil, el menú de abajo usa el nombre corto (caben los 7 sin cortarse)
+      a.append(ico(x.icono), el('span', 'largo', x.titulo), el('span', 'corto', x.corto ?? x.titulo));
       if (d?.configurado && k === 'cuentas') a.append(el('small', 'contador', String(d.usuarios.filter((u) => !u.admin).length)));
       if (d?.configurado && k === 'directo') { const n = d.usuarios.reduce((t, u) => t + u.viendo.length, 0); if (n) a.append(el('small', 'contador vivo', String(n))); }
       if (k === 'revendedores' && revs.length) a.append(el('small', 'contador', String(revs.length)));
