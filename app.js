@@ -46,6 +46,7 @@
     subir: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/>',
     carpeta: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
     archivo: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+    nube: '<path d="M7 18a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 18 9a4 4 0 0 1 0 9z"/><path d="m9.5 13.5 2.5-2.5 2.5 2.5M12 11v5"/>',
   };
   const ico = (n, clase = '') => { const s = el('span', `ico ${clase}`); s.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TRAZOS[n] ?? ''}</svg>`; return s; };
   const boton = (texto, clase = '', icono = null, titulo = null) => {
@@ -235,25 +236,37 @@
     revendedores: { titulo: 'Revendedores', sub: 'Quién vende cuentas y cuántos créditos tiene', icono: 'red' },
     directo: { titulo: 'En directo', sub: 'Lo que se está viendo ahora mismo', icono: 'directo' },
     subir: { titulo: 'Subir', sub: 'Sube películas y series a e2, ya con el nombre que entiende Emby', icono: 'subir' },
+    equipo: { titulo: 'Subidores', sub: 'Personas que pueden subir contenido a e2, sin poder tocar nada más', icono: 'nube' },
     actividad:{ titulo: 'Actividad', sub: 'Todo lo que se ha hecho desde este panel', icono: 'actividad' },
   };
   let VISTAS = TODAS_VISTAS;
-  const NOMBRE_ROL = { admin: 'Administrador', super: 'Superrevendedor', revendedor: 'Revendedor' };
+  const NOMBRE_ROL = { admin: 'Administrador', super: 'Superrevendedor', revendedor: 'Revendedor', subidor: 'Subidor' };
   const esRevendedor = () => rol !== 'admin';
   const creditos = () => d?.yo?.creditos ?? 0;
   const costeMes = () => d?.costeMes ?? 1;
   const textoCreditos = (n) => `${n} ${n === 1 ? 'crédito' : 'créditos'}`;
 
   function arrancar(yo) {
-    if (!['admin', 'super', 'revendedor'].includes(yo.rol)) {
+    if (!['admin', 'super', 'revendedor', 'subidor'].includes(yo.rol)) {
       salir();
-      $('#e-error').textContent = 'Este panel es solo para administradores y revendedores';
+      $('#e-error').textContent = 'Este panel es solo para administradores, revendedores y subidores';
       return;
     }
     rol = yo.rol;
-    // «Subir» es solo para administradores (el servidor también lo comprueba)
-    VISTAS = Object.fromEntries(Object.entries(TODAS_VISTAS).filter(([k]) => (k !== 'revendedores' || rol !== 'revendedor') && (k !== 'subir' || rol === 'admin')));
+    // «Subir» y «Subidores» son solo para administradores; un subidor solo ve «Subir» (el servidor
+    // también lo comprueba todo)
+    VISTAS = rol === 'subidor' ? { subir: { ...TODAS_VISTAS.subir, sub: 'Sube películas y series nuevas a la nube, ya con el nombre que entiende Emby' } }
+      : Object.fromEntries(Object.entries(TODAS_VISTAS).filter(([k]) => (k !== 'revendedores' || rol !== 'revendedor') && ((k !== 'subir' && k !== 'equipo') || rol === 'admin')));
     e2Activo = Boolean(yo.e2);
+    if (rol === 'subidor') {
+      const nombre = yo.nombre || yo.usuario;
+      $('#yo-nombre').textContent = nombre; $('#yo-rol').textContent = NOMBRE_ROL.subidor;
+      $('#yo-avatar').textContent = nombre[0].toUpperCase(); $('#yo-avatar').style.setProperty('--c', colorDe(nombre));
+      $('#vista-entrar').hidden = true; $('#vista-panel').hidden = false;
+      d = null; sub.raiz = null;
+      irA('subir', true);
+      return; // nada de Emby: un subidor no tiene acceso
+    }
     if (rol !== 'admin') { VISTAS.cuentas = { ...VISTAS.cuentas, sub: 'Tus clientes: crea, renueva y controla sus cuentas' }; VISTAS.actividad = { ...VISTAS.actividad, sub: 'Tus movimientos de créditos y cuentas' }; }
     if (rol === 'super') VISTAS.revendedores = { ...VISTAS.revendedores, sub: 'Tus revendedores: dales créditos y controla lo que venden' };
     filtros.dueno = '';
@@ -302,7 +315,7 @@
   }
 
   function irA(k, cambiarUrl = true) {
-    if (!VISTAS[k]) k = 'resumen';
+    if (!VISTAS[k]) k = VISTAS.resumen ? 'resumen' : Object.keys(VISTAS)[0];
     vista = k;
     if (cambiarUrl) history.replaceState(null, '', `#${k}`);
     pintarMenu();
@@ -318,7 +331,7 @@
         rol === 'revendedor' ? [] : api('/api/panel/emby/revendedores').catch(() => []),
       ]);
       d = res;
-      actividad = (Array.isArray(reg) ? reg : []).filter((x) => esRevendedor() || /emby|revendedor|créditos|e2/i.test(x.accion));
+      actividad = (Array.isArray(reg) ? reg : []).filter((x) => esRevendedor() || /emby|revendedor|créditos|e2|subidor/i.test(x.accion + ' ' + x.usuario));
       revs = Array.isArray(rv) ? rv : [];
     } catch (e) {
       if (callado && d) return;
@@ -354,6 +367,7 @@
     rec.onclick = async () => { rec.classList.add('girando'); if (vista === 'subir') { sub.raiz = null; sub.subcarpetas = {}; pintar(); return; } await actualizar(); };
     acc.append(rec);
     if (vista === 'subir') { /* sin botón de nueva cuenta */ }
+    else if (vista === 'equipo') { const n = boton('Nuevo subidor', 'primario', 'mas'); n.onclick = () => fichaSubidor(); acc.append(n); }
     else if (vista === 'revendedores') { const n = boton('Nuevo revendedor', 'primario', 'mas'); n.onclick = () => fichaRevendedor(); acc.append(n); }
     else if (d?.configurado) { const n = boton('Nueva cuenta', 'primario', 'mas'); n.onclick = () => fichaCuenta(null); acc.append(n); }
     c.append(t, acc);
@@ -366,6 +380,7 @@
     v.innerHTML = '';
     v.append(cabecera());
     if (vista === 'subir') { vistaSubir(v); window.scrollTo(0, mantenerScroll ? scroll : 0); return; }
+    if (vista === 'equipo') { vistaEquipo(v); window.scrollTo(0, mantenerScroll ? scroll : 0); return; }
     if (!d) { v.append(esqueleto()); return; }
     if (!d.configurado) { v.append(sinConfigurar()); return; }
     ({ resumen: vistaResumen, cuentas: vistaCuentas, revendedores: vistaRevendedores, directo: vistaDirecto, actividad: vistaActividad })[vista](v);
@@ -994,6 +1009,7 @@
       let a;
       try { a = await api('/api/panel/e2/abrir', { ruta: item.ruta, tamano: item.file.size, tipo: item.file.type }); } catch (e) {
         if (e.status !== 409) throw e;
+        if (rol === 'subidor') throw new Error('Ya existe en la nube y tu cuenta no puede reemplazar nada: cámbiale el nombre con el lápiz');
         if (!(await confirmar('Ese archivo ya existe', `En e2 ya hay «${item.ruta}». ¿Quieres reemplazarlo por el nuevo?`, 'Reemplazar', true))) { item.estado = 'cancelada'; pintarItem(item); return; }
         a = await api('/api/panel/e2/abrir', { ruta: item.ruta, tamano: item.file.size, tipo: item.file.type, reemplazar: true });
       }
@@ -1095,6 +1111,121 @@
     if (viejo?.isConnected) viejo.replaceWith(filaItem(item));
     // Al cambiar de estado (hecho, error…) se repinta la tarjeta entera para los botones del pie
     if (item.estado !== 'subiendo' && vista === 'subir' && $('#cola-subir') && !pila.length) { const c = colaSubir(); $('#cola-subir').closest('.tarjeta').replaceWith(c); }
+  }
+
+  // ---------- Subidores (solo administradores) ----------
+  // Cuentas que solo pueden subir contenido NUEVO a e2: no reemplazan ni borran nada y no ven nada más
+  let subidores = null;
+  async function cargarSubidores() {
+    try { subidores = await api('/api/panel/subidores'); } catch (e) { subidores = { error: e.message }; }
+    if (vista === 'equipo') pintar();
+  }
+  const textoCarpetas = (c) => (c?.length ? c.join(' · ') : 'Todas las carpetas');
+  function vistaEquipo(v) {
+    if (subidores === null) { v.append(esqueleto()); cargarSubidores(); return; }
+    if (subidores.error) {
+      const f = el('div', 'tarjeta fallo'); f.append(ico('alerta', 'tono-mal'));
+      const t = el('div'); t.append(el('b', null, 'No se pudo cargar'), el('span', null, subidores.error)); f.append(t);
+      const r = boton('Reintentar', '', 'recargar'); r.onclick = () => { subidores = null; pintar(); }; f.append(r);
+      v.append(f); return;
+    }
+    const info = el('div', 'tarjeta aviso-equipo');
+    info.append(ico('escudo', 'tono-acento'), el('p', null, 'Un subidor entra en este mismo panel y solo ve «Subir»: puede subir películas y series nuevas (con su ficha de IMDb/TMDB), pero no puede reemplazar ni borrar nada, ni ver cuentas, revendedores o la actividad. Si quieres, solo en las carpetas que elijas.'));
+    v.append(info);
+    const t = tarjeta('Subidores', 'nube', subidores.length ? null : 'Todavía no hay ninguno. Pulsa «Nuevo subidor» para crear el primero.');
+    for (const x of subidores) {
+      const f = el('div', 'linea linea-subidor');
+      const a = el('div', 'avatar', x.usuario[0].toUpperCase()); a.style.setProperty('--c', colorDe(x.usuario));
+      const tx = el('div', 'linea-subir-texto');
+      tx.append(el('b', null, x.usuario), el('small', null, textoCarpetas(x.carpetas)),
+        el('small', 'tenue', `${x.subidas ? `${x.subidas} ${x.subidas === 1 ? 'subida' : 'subidas'} · última ${haceCuanto(x.ultimo).toLowerCase()}` : 'Sin subidas todavía'} · creado ${fechaCorta(x.creado)}`));
+      const est = insignia(x.activo ? { tono: 'bien', texto: 'Activo' } : { tono: 'gris', texto: 'Suspendido' });
+      const acc = el('div', 'acciones-subidor');
+      const car = boton(null, 'icono fino', 'carpeta', 'Carpetas'); car.onclick = () => fichaSubidor(x);
+      const cl = boton(null, 'icono fino', 'llave', 'Nueva contraseña'); cl.onclick = () => claveSubidor(x);
+      const ac = boton(null, 'icono fino', x.activo ? 'pausa' : 'play', x.activo ? 'Suspender' : 'Reactivar'); ac.onclick = () => activarSubidor(x);
+      const br = boton(null, 'icono fino peligro', 'papelera', 'Borrar'); br.onclick = () => borrarSubidor(x);
+      acc.append(car, cl, ac, br);
+      f.append(a, tx, est, acc);
+      t.cuerpo.append(f);
+    }
+    v.append(t.caja);
+  }
+  async function carpetasE2() {
+    try { return (await api('/api/panel/e2/carpetas')).carpetas; } catch { return []; }
+  }
+  // Crear (sin x) o cambiar las carpetas de uno que ya existe
+  async function fichaSubidor(x = null) {
+    const lista = await carpetasE2();
+    const r = await ventana((w, fin) => {
+      const cab = el('div', 'cab-confirmar'); cab.append(ico('nube', 'tono-acento'), el('h2', null, x ? `Carpetas de ${x.usuario}` : 'Nuevo subidor'));
+      w.append(cab);
+      let usuario = null; let clave = null;
+      if (!x) {
+        w.append(el('p', null, 'Podrá subir películas y series nuevas desde este panel. No podrá reemplazar ni borrar nada.'));
+        const lu = el('label', null, 'Usuario'); usuario = el('input'); usuario.placeholder = 'de 3 a 20 letras o números'; usuario.autocapitalize = 'none'; usuario.spellcheck = false; lu.append(usuario);
+        const lc = el('label', null, 'Contraseña'); clave = el('input'); clave.className = 'mono'; clave.value = claveAlAzar(); lc.append(clave);
+        w.append(lu, lc);
+      }
+      const todas = el('label', 'opcion-check'); const ct = el('input'); ct.type = 'checkbox'; ct.checked = !x?.carpetas?.length; todas.append(ct, el('span', null, 'Puede subir a todas las carpetas'));
+      const caja = el('div', 'lista-carpetas');
+      const marcas = lista.map((c) => { const l = el('label', 'opcion-check'); const i = el('input'); i.type = 'checkbox'; i.value = c; i.checked = Boolean(x?.carpetas?.includes(c)); l.append(i, el('span', null, c)); caja.append(l); return i; });
+      const pinta = () => { caja.hidden = ct.checked; };
+      ct.onchange = pinta; pinta();
+      w.append(el('h3', 'sub-ventana', 'Dónde puede subir'), todas, caja);
+      const error = el('p', 'error'); w.append(error);
+      pieBotones(w, fin, x ? 'Guardar' : 'Crear subidor', 'primario', () => {
+        const carpetas = ct.checked ? null : marcas.filter((i) => i.checked).map((i) => i.value);
+        if (carpetas && !carpetas.length) { error.textContent = 'Elige al menos una carpeta (o marca «todas»)'; return; }
+        fin({ usuario: usuario?.value.trim().toLowerCase(), clave: clave?.value, carpetas });
+      });
+      (usuario ?? ct).focus();
+    }, { fija: true, ancho: 'mediana' });
+    if (!r) return;
+    try {
+      if (x) { await api('/api/panel/subidores/editar', { usuario: x.usuario, carpetas: r.carpetas }); aviso(`Carpetas de ${x.usuario} guardadas`, 'bien'); }
+      else { const n = await api('/api/panel/subidores/crear', r); datosSubidor(n, r.clave, false); }
+    } catch (e) { aviso(e.message, 'mal'); }
+    subidores = null; pintar();
+  }
+  async function claveSubidor(x) {
+    const clave = await pedirTexto(`Nueva contraseña para ${x.usuario}`, 'Se cerrarán sus sesiones abiertas.', claveAlAzar(), 'Cambiar');
+    if (!clave) return;
+    try { await api('/api/panel/subidores/editar', { usuario: x.usuario, clave }); datosSubidor(x, clave, true); } catch (e) { aviso(e.message, 'mal'); }
+  }
+  async function activarSubidor(x) {
+    if (x.activo && !(await confirmar(`Suspender a ${x.usuario}`, 'No podrá entrar ni subir nada hasta que lo reactives. Lo que ya subió se queda.', 'Suspender', true))) return;
+    try { await api('/api/panel/subidores/editar', { usuario: x.usuario, activo: !x.activo }); aviso(x.activo ? `${x.usuario} suspendido` : `${x.usuario} reactivado`, 'bien'); } catch (e) { aviso(e.message, 'mal'); }
+    subidores = null; pintar();
+  }
+  async function borrarSubidor(x) {
+    if (!(await confirmar(`Borrar a ${x.usuario}`, 'Se borra la cuenta y no podrá volver a entrar. Lo que ya subió a la nube NO se borra.', 'Borrar', true))) return;
+    try { await api('/api/panel/subidores/borrar', { usuario: x.usuario }); aviso(`${x.usuario} borrado`, 'bien'); } catch (e) { aviso(e.message, 'mal'); }
+    subidores = null; pintar();
+  }
+  function datosSubidor(x, clave, soloClave) {
+    ventana((w, fin) => {
+      const cab = el('div', 'cab-confirmar'); cab.append(ico('ok', 'tono-bien'), el('h2', null, soloClave ? 'Contraseña cambiada' : 'Subidor creado'));
+      w.append(cab, el('p', null, 'Pásale estos datos por mensaje privado. La contraseña no se vuelve a mostrar.'));
+      const panel = `${location.origin}${location.pathname}`;
+      const raya = '━━━━━━━━━━━━━━━━━━';
+      const texto = ['☁️  SUBIR CONTENIDO A MORVEHTV', raya, '', '🌐  Panel', `      ${panel}`, '', '👤  Usuario', `      ${x.usuario}`, '', '🔑  Contraseña', `      ${clave}`, '',
+        '📁  Carpetas', `      ${textoCarpetas(x.carpetas)}`, '', raya, '', '▸ Entra en el panel y ve a «Subir».', '▸ Busca la ficha por IMDb o TMDB y arrastra los archivos.',
+        '▸ No se puede reemplazar ni borrar nada de lo que ya hay.', '', raya].join('\n');
+      const t = el('div', 'credencial');
+      const linea = (titulo, valor, mono) => {
+        const f = el('div', 'credencial-linea'); const c = boton(null, 'icono fino', 'copiar', `Copiar ${titulo.toLowerCase()}`);
+        c.onclick = () => navigator.clipboard.writeText(valor).then(() => aviso(`${titulo} copiado`, 'bien'), () => {});
+        f.append(el('span', null, titulo), el('b', mono ? 'mono' : null, valor), c); return f;
+      };
+      t.append(linea('Panel', panel.replace(/^https?:\/\//, '')), linea('Usuario', x.usuario, true), linea('Contraseña', clave, true));
+      w.append(t);
+      const copiar = boton('Copiar mensaje completo', 'primario', 'copiar');
+      copiar.onclick = () => navigator.clipboard.writeText(texto).then(() => { copiar.querySelector('span').textContent = 'Copiado'; }, () => aviso('No se pudo copiar: selecciónalo a mano', 'mal'));
+      const vistaMsg = el('details', 'mensaje'); vistaMsg.append(el('summary', null, 'Ver el mensaje'), el('pre', null, texto));
+      const fila = el('div', 'botones'); const ok = boton('Hecho'); ok.onclick = () => fin(null); fila.append(ok, copiar);
+      w.append(vistaMsg, fila); copiar.focus();
+    }, { fija: true, ancho: 'mediana' });
   }
 
   // ---------- Acciones ----------

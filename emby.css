@@ -324,3 +324,15 @@ select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px
 .mini-cartel { flex: none; width: 46px; aspect-ratio: 2 / 3; border-radius: 6px; background: var(--panel3) center / cover no-repeat; }
 .ficha-elegida { display: flex; align-items: center; gap: 12px; }
 .resumen-ficha { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Subidores */
+.aviso-equipo { display: flex; gap: 12px; align-items: flex-start; padding: 14px 18px; margin-bottom: 16px; }
+.aviso-equipo p { margin: 0; color: var(--suave); }
+.linea-subidor { gap: 14px; }
+.linea-subidor .linea-subir-texto small { white-space: normal; }
+.acciones-subidor { display: flex; gap: 4px; }
+.opcion-check { flex-direction: row; align-items: center; gap: 10px; color: var(--texto); font-weight: 500; cursor: pointer; }
+.opcion-check input { width: 18px; height: 18px; accent-color: var(--acento); }
+.lista-carpetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 14px; padding: 10px 12px; border-radius: 10px; background: var(--fondo2); border: 1px solid var(--borde); }
+.sub-ventana { margin: 8px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--suave); }
+@media (max-width: 760px) { .linea-subidor { flex-wrap: wrap; } .acciones-subidor { width: 100%; justify-content: flex-end; } }
