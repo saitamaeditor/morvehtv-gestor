@@ -693,7 +693,7 @@
   //   Película → CARPETA/Título (Año)/Título (Año).mkv
   //   Serie    → CARPETA/Serie (Año)/Temporada 1/Serie - S01E02 - Título.mkv
   const sub = { tipo: 'pelicula', carpeta: '', titulo: '', ano: '', serie: '', temporada: '1', otra: '', archivos: [], cola: [], raiz: null, subcarpetas: {}, error: '',
-    ficha: null, busca: '', resultados: null, buscando: false, errorFicha: '', detectado: null };
+    ficha: null, busca: '', resultados: null, buscando: false, errorFicha: '', detectado: null, eps: null };
   // Código para el nombre de la carpeta: con él Emby acierta siempre la ficha
   const etiquetaId = (f) => (f?.imdb ? `[imdbid=${f.imdb}]` : f?.tmdb ? `[tmdbid=${f.tmdb}]` : '');
   const sinEtiquetas = (s) => String(s).replace(/\s*\[(imdbid|tmdbid|tvdbid)[=-][^\]]*\]/gi, '').replace(/\s*\((19|20)\d{2}\)$/, '').trim();
@@ -774,6 +774,7 @@
   }
   // Episodio de un archivo de la lista, con lo que digan sus carpetas
   function epDe(a, suelto = sub.tipo === 'serie') {
+    if (a.fijo) return { s: a.fijo.s, e: a.fijo.e, e2: null, resto: '', serie: '', fuerte: true };
     const ep = leerEpisodio(a.file.name, suelto);
     if (!ep) return null;
     const c = leerCarpetas(a.dir);
@@ -899,7 +900,7 @@
       sub.detectado = { episodios: eps.filter(Boolean).length, sinNumero: eps.filter((x) => !x).length, temporadas: temps, series: nombres };
       if (temps.length) sub.temporada = String(temps[0]);
       // La serie: la carpeta que ya hay en e2 con ese nombre o una nueva; y su ficha se busca sola
-      if (nombre && (fresco || !limpio(sub.serie))) {
+      if (nombre && !sub.ficha && (fresco || !limpio(sub.serie))) {
         const n = normal(sinEtiquetas(nombre));
         const ya = (sub.subcarpetas[sub.carpeta] ?? []).find((x) => normal(sinEtiquetas(x)) === n);
         sub.serie = ya ?? nombre; sub.ficha = null; sub.resultados = null; sub.errorFicha = '';
@@ -926,6 +927,121 @@
     pintar();
     if (buscar) buscarFicha(true);
   }
+  // ---- Episodios de la serie: cada uno con su hueco para elegir el archivo ----
+  // Temporada y episodio de un vídeo de la lista (null si no se sabe)
+  function posDe(a) {
+    if (!VIDEO.test(a.file.name)) return null;
+    const x = epDe(a); if (!x) return null;
+    return { s: x.s ?? leerCarpetas(a.dir).temporada ?? (Number(sub.temporada) || 1), e: x.e, e2: x.e2 };
+  }
+  const archivoDe = (s, e) => sub.archivos.find((a) => { const p = posDe(a); return p && p.s === s && (p.e === e || (p.e2 && p.e <= e && e <= p.e2)); });
+  function paramsEpisodios() {
+    const x = sub.ficha;
+    const ano = x?.ano ?? /\((\d{4})\)/.exec(sub.serie)?.[1] ?? '';
+    const imdb = x?.imdb ?? /tt\d{6,10}/i.exec(sub.serie)?.[0] ?? '';
+    return { imdb, nombre: x?.nombre ?? sinEtiquetas(sub.serie), ano: ano ? String(ano) : '', carpeta: sub.carpeta, serie: limpio(sub.serie) };
+  }
+  async function cargarEpisodios(forzar = false) {
+    const p = paramsEpisodios(); const clave = JSON.stringify(p);
+    if (!forzar && sub.eps?.clave === clave) return;
+    sub.eps = { clave, cargando: true, datos: null, error: '', temp: sub.eps?.clave === clave ? sub.eps.temp : null };
+    try {
+      const d = await api(`/api/panel/e2/episodios?${new URLSearchParams(p)}`);
+      if (sub.eps?.clave !== clave) return;
+      sub.eps.datos = d;
+    } catch (e) { if (sub.eps?.clave === clave) sub.eps.error = e.message; }
+    if (sub.eps?.clave === clave) sub.eps.cargando = false;
+    if (vista === 'subir') pintar();
+  }
+  function bloqueEpisodios() {
+    const caja = el('div', 'bloque-eps');
+    const clave = JSON.stringify(paramsEpisodios());
+    if (sub.eps?.clave !== clave) { cargarEpisodios(); }
+    const eps = sub.eps;
+    const cab = el('div', 'eps-cab');
+    cab.append(ico('directo', 'tono-acento'), el('b', null, 'Episodios'));
+    const recargar = boton(null, 'icono fino', 'recargar', 'Volver a mirar'); recargar.onclick = () => cargarEpisodios(true);
+    caja.append(cab);
+    if (!eps || eps.cargando) { caja.append(el('p', 'ayuda', 'Buscando los episodios de la serie…')); return caja; }
+    cab.append(recargar);
+    if (eps.error) { caja.append(el('p', 'ayuda tono-mal', eps.error)); return caja; }
+    const temps = eps.datos.temporadas;
+    if (!temps.length) {
+      caja.append(el('p', 'ayuda', 'No se ha encontrado la lista de episodios de esta serie. Puedes subirlos igual: elige o arrastra los archivos abajo.'));
+      return caja;
+    }
+    // Temporada que se muestra: la elegida, la del campo «Temporada» o la primera a la que le falte algo
+    const nums = temps.map((t) => t.n);
+    const falta = (t) => t.episodios.some((x) => !x.ya);
+    let n = eps.temp ?? (nums.includes(Number(sub.temporada)) && sub.archivos.length ? Number(sub.temporada) : null) ?? temps.find(falta)?.n ?? nums.at(-1);
+    if (!nums.includes(n)) n = nums[0];
+    const t = temps.find((x) => x.n === n);
+    if (temps.length > 1) {
+      const seg = el('div', 'segmentos temps');
+      for (const x of temps) {
+        const b = el('button', x.n === n ? 'activa' : '', x.n === 0 ? 'Especiales' : `T${x.n}`); b.type = 'button';
+        b.title = `${x.episodios.filter((y) => y.ya).length} de ${x.episodios.length} en la nube`;
+        b.onclick = () => { sub.eps.temp = x.n; sub.temporada = String(x.n); pintar(); };
+        seg.append(b);
+      }
+      caja.append(seg);
+    }
+    const enNube = t.episodios.filter((x) => x.ya).length;
+    const elegidos = t.episodios.filter((x) => archivoDe(n, x.e)).length;
+    const faltan = t.episodios.filter((x) => !x.ya && !archivoDe(n, x.e));
+    caja.append(el('small', 'tenue', `Temporada ${n}: ${t.episodios.length} episodios · ${enNube} en la nube · ${elegidos} elegido${elegidos === 1 ? '' : 's'}${faltan.length ? ` · faltan ${faltan.length}` : ''}`));
+
+    const hoy = new Date().toISOString().slice(0, 10);
+    const lista = el('div', 'lista-eps');
+    for (const x of t.episodios) {
+      const fila = el('div', `fila-ep${x.ya ? ' ya' : ''}`);
+      const tx = el('div', 'linea-subir-texto');
+      tx.append(el('b', null, x.titulo || `Episodio ${x.e}`));
+      const a = archivoDe(n, x.e);
+      if (a) tx.append(el('small', 'mono', a.file.name));
+      else if (x.fecha) tx.append(el('small', 'tenue', x.fecha > hoy ? `Se estrena el ${fechaCorta(x.fecha)}` : fechaCorta(x.fecha)));
+      fila.append(el('span', 'chip chip-ep', `E${dos(x.e)}`), tx);
+      if (a) {
+        fila.append(el('span', 'chip tono-acento', 'Elegido'));
+        const q = boton(null, 'icono fino', 'cerrar', 'Quitar este archivo');
+        q.onclick = () => { sub.archivos.splice(sub.archivos.indexOf(a), 1); pintar(); };
+        fila.append(q);
+      } else if (x.ya) {
+        fila.append(el('span', 'chip tono-bien', 'En la nube'));
+      } else {
+        const b = boton('Elegir archivo', 'fino', 'archivo');
+        b.onclick = () => elegirArchivos(false, (files) => {
+          sub.archivos.push({ file: files[0], dir: [], fijo: { s: n, e: x.e }, editada: false, ruta: '' });
+          sub.temporada = String(n); pintar();
+        });
+        fila.append(b);
+      }
+      lista.append(fila);
+    }
+    caja.append(lista);
+    // Varios a la vez: los que traen su número van a su sitio y el resto rellena los que faltan, en orden
+    if (faltan.length > 1) {
+      const b = boton(`Elegir varios para los ${faltan.length} que faltan`, 'fino', 'subir');
+      b.onclick = () => elegirArchivos(true, async (files) => {
+        const antes = new Set(sub.archivos);
+        sub.temporada = String(n); sub.eps.temp = n;
+        await anadirArchivos([...files].sort((p, q) => p.name.localeCompare(q.name, 'es', { numeric: true })).map((file) => ({ file, dir: [] })));
+        const huecos = t.episodios.filter((y) => !y.ya && !archivoDe(n, y.e)).map((y) => y.e);
+        for (const a of sub.archivos) if (!antes.has(a) && VIDEO.test(a.file.name) && !posDe(a) && huecos.length) a.fijo = { s: n, e: huecos.shift() };
+        pintar();
+      });
+      caja.append(b);
+    }
+    return caja;
+  }
+  // Abre el selector de archivos del sistema
+  function elegirArchivos(varios, alElegir) {
+    const i = el('input'); i.type = 'file'; i.multiple = varios; i.hidden = true;
+    i.accept = varios ? '.mkv,.mp4,.m4v,.avi,.mov,.webm,.ts,.m2ts,.wmv,.mpg,.mpeg,.srt,.ass,.ssa,.vtt' : '.mkv,.mp4,.m4v,.avi,.mov,.webm,.ts,.m2ts,.wmv,.mpg,.mpeg';
+    i.onchange = () => { if (i.files.length) alElegir([...i.files]); i.remove(); };
+    document.body.append(i); i.click();
+  }
+
   // Resumen de lo detectado encima de la lista
   function avisoDetectado() {
     const d = sub.detectado; const caja = el('div', 'aviso-detectado');
@@ -1011,6 +1127,7 @@
       fila.append(campo('Serie', sub.serie, (x) => { sub.serie = x; }, { placeholder: 'Nombre (Año), o elige una que ya está', lista: 'series-e2' }),
         campo('Temporada', sub.temporada, (x) => { sub.temporada = x.replace(/\D/g, '').slice(0, 2); }, { placeholder: '1', modo: 'numeric', clase: 'corto' }));
       f.append(fila, dl, el('p', 'ayuda', 'La temporada y el episodio se sacan del nombre (S01E02, 1x02, T1 Cap 2, Capítulo 2…) o de la carpeta «Temporada 2». Esta temporada solo se usa para los que no la dicen.'));
+      if (sub.ficha || limpio(sub.serie)) f.append(bloqueEpisodios());
     } else {
       f.append(campo('Subcarpeta (opcional)', sub.otra, (x) => { sub.otra = x; }, { placeholder: 'Por ejemplo: Fernando (2020)/Temporada 1' }),
         el('p', 'ayuda', 'Se sube con el nombre original del archivo.'));
@@ -1163,7 +1280,11 @@
     try {
       let x;
       while ((x = sub.cola.find((i) => i.estado === 'esperando'))) await subirUno(x);
-    } finally { trabajando = false; }
+    } finally {
+      trabajando = false;
+      // Los episodios recién subidos pasan a «En la nube»
+      if (sub.eps && sub.tipo === 'serie' && vista === 'subir') cargarEpisodios(true);
+    }
   }
   window.addEventListener('beforeunload', (e) => { if (sub.cola.some((i) => i.estado === 'subiendo' || i.estado === 'esperando')) { e.preventDefault(); e.returnValue = ''; } });
 

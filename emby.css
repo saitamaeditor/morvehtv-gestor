@@ -344,3 +344,17 @@ select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px
 .lista-carpetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 14px; padding: 10px 12px; border-radius: 10px; background: var(--fondo2); border: 1px solid var(--borde); }
 .sub-ventana { margin: 8px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--suave); }
 @media (max-width: 760px) { .linea-subidor { flex-wrap: wrap; } .acciones-subidor { width: 100%; justify-content: flex-end; } }
+
+/* Episodios de la serie en «Subir» */
+.bloque-eps { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 12px; background: var(--fondo2); border: 1px solid var(--borde); }
+.bloque-eps .ayuda { margin: 0; }
+.eps-cab { display: flex; align-items: center; gap: 8px; }
+.eps-cab b { flex: 1; font-size: 14px; }
+.segmentos.temps { flex-wrap: wrap; align-self: flex-start; }
+.lista-eps { display: flex; flex-direction: column; max-height: 420px; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.fila-ep { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--borde); }
+.fila-ep:first-child { border-top: 0; }
+.fila-ep.ya .linea-subir-texto b { color: var(--suave); }
+.fila-ep > .chip { flex: none; }
+.fila-ep > .boton { flex: none; }
+.bloque-eps > .boton { align-self: flex-start; }
