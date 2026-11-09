@@ -816,7 +816,38 @@
       const cab = el('div', 'cab-confirmar'); cab.append(ico('ok', 'tono-bien'), el('h2', null, soloClave ? 'Contraseña cambiada' : 'Cuenta creada'));
       w.append(cab, el('p', null, 'Pásale estos datos por mensaje privado. La contraseña no se vuelve a mostrar.'));
       const servidor = d.servidor.replace(/^https?:\/\//, '');
-      const texto = `📺 Tu cuenta de ${d.nombreServidor || 'Emby'}\n\nServidor: ${d.servidor}\nUsuario: ${usuario}\nContraseña: ${clave}\n${caduca ? `Válida hasta: ${fechaCorta(caduca)}` : 'Sin caducidad'}\n\nEntra desde el navegador en ${d.servidor} o con la app de Emby (móvil, Smart TV, Fire TV…): pon el servidor ${servidor} y el puerto 443.`;
+      const raya = '━━━━━━━━━━━━━━━━━━';
+      const texto = [
+        `📺  TU CUENTA DE ${(d.nombreServidor || 'Emby').toUpperCase()}`,
+        raya,
+        '',
+        '🌐  Servidor',
+        `      ${d.servidor}`,
+        '',
+        '👤  Usuario',
+        `      ${usuario}`,
+        '',
+        '🔑  Contraseña',
+        `      ${clave}`,
+        '',
+        caduca ? '📅  Válida hasta' : '📅  Caducidad',
+        `      ${caduca ? fechaCorta(caduca) : 'Sin caducidad'}`,
+        '',
+        raya,
+        '',
+        '📲  CÓMO ENTRAR',
+        '',
+        '▸ Desde el navegador:',
+        `      ${d.servidor}`,
+        '',
+        '▸ Con la app de Emby',
+        '   (móvil, Smart TV, Fire TV…):',
+        `      Servidor:  ${servidor}`,
+        '      Puerto:  443',
+        '',
+        raya,
+        '¡Disfruta! 🍿',
+      ].join('\n');
       const t = el('div', 'credencial');
       const linea = (titulo, valor, mono) => {
         const x = el('div', 'credencial-linea');
