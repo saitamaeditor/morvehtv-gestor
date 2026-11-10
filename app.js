@@ -46,6 +46,7 @@
     subir: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/>',
     carpeta: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
     archivo: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+    telegram: '<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>',
     nube: '<path d="M7 18a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 18 9a4 4 0 0 1 0 9z"/><path d="m9.5 13.5 2.5-2.5 2.5 2.5M12 11v5"/>',
   };
   const ico = (n, clase = '') => { const s = el('span', `ico ${clase}`); s.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TRAZOS[n] ?? ''}</svg>`; return s; };
@@ -239,6 +240,7 @@
     cuentas: { titulo: 'Cuentas', sub: 'Crea, renueva y controla quién entra en tu Emby', icono: 'cuentas' },
     revendedores: { titulo: 'Revendedores', corto: 'Revend.', sub: 'Quién vende cuentas y cuántos créditos tiene', icono: 'red' },
     directo: { titulo: 'En directo', corto: 'Directo', sub: 'Lo que se está viendo ahora mismo', icono: 'directo' },
+    telegram: { titulo: 'Telegram', corto: 'Telegram', sub: 'Avisos de lo nuevo de Emby en tu grupo, un tema por biblioteca', icono: 'telegram' },
     actividad:{ titulo: 'Actividad', corto: 'Registro', sub: 'Todo lo que se ha hecho desde este panel', icono: 'actividad' },
   };
   let VISTAS = TODAS_VISTAS;
@@ -255,7 +257,7 @@
       return;
     }
     rol = yo.rol;
-    VISTAS = Object.fromEntries(Object.entries(TODAS_VISTAS).filter(([k]) => k !== 'revendedores' || rol !== 'revendedor'));
+    VISTAS = Object.fromEntries(Object.entries(TODAS_VISTAS).filter(([k]) => (k !== 'revendedores' || rol !== 'revendedor') && (k !== 'telegram' || rol === 'admin')));
     if (rol !== 'admin') { VISTAS.cuentas = { ...VISTAS.cuentas, sub: 'Tus clientes: crea, renueva y controla sus cuentas' }; VISTAS.actividad = { ...VISTAS.actividad, sub: 'Tus movimientos de créditos y cuentas' }; }
     if (rol === 'super') VISTAS.revendedores = { ...VISTAS.revendedores, sub: 'Tus revendedores: dales créditos y controla lo que venden' };
     filtros.dueno = '';
@@ -354,10 +356,10 @@
     const t = el('div', 'cab-texto'); t.append(el('h1', null, x.titulo), el('p', null, x.sub));
     const acc = el('div', 'cab-acciones');
     const rec = boton(null, 'icono', 'recargar', 'Actualizar');
-    rec.onclick = async () => { rec.classList.add('girando'); await actualizar(); };
+    rec.onclick = async () => { rec.classList.add('girando'); if (vista === 'telegram') tg = null; await actualizar(); };
     acc.append(rec);
     if (vista === 'revendedores') { const n = boton('Nuevo revendedor', 'primario', 'mas'); n.onclick = () => fichaRevendedor(); acc.append(n); }
-    else if (d?.configurado) {
+    else if (d?.configurado && vista !== 'telegram') {
       if (d.demo) { const dm = boton('Demo', '', 'reloj', 'Crear una cuenta de prueba de unas horas'); dm.onclick = () => fichaDemo(); acc.append(dm); }
       const n = boton('Nueva cuenta', 'primario', 'mas'); n.onclick = () => fichaCuenta(null); acc.append(n);
     }
@@ -372,7 +374,7 @@
     v.append(cabecera());
     if (!d) { v.append(esqueleto()); return; }
     if (!d.configurado) { v.append(sinConfigurar()); return; }
-    ({ resumen: vistaResumen, cuentas: vistaCuentas, revendedores: vistaRevendedores, directo: vistaDirecto, actividad: vistaActividad })[vista](v);
+    ({ resumen: vistaResumen, cuentas: vistaCuentas, revendedores: vistaRevendedores, directo: vistaDirecto, telegram: vistaTelegram, actividad: vistaActividad })[vista](v);
     window.scrollTo(0, mantenerScroll ? scroll : 0);
   }
   function esqueleto() {
@@ -663,6 +665,183 @@
       lista.append(c);
     }
     v.append(lista);
+  }
+
+  // ---------- Telegram (solo administradores) ----------
+  // Conecta el bot (el token se queda en el servidor), el grupo con temas y un tema por biblioteca.
+  let tg = null; // lo último que dijo el servidor
+  async function tgAccion(ruta, datos, ok, btn) {
+    if (btn) { btn.disabled = true; btn.classList.add('cargando'); }
+    try {
+      const r = await api(`/api/panel/telegram${ruta}`, datos || {});
+      if (r && 'conectado' in r) tg = r;
+      if (ok) aviso(typeof ok === 'function' ? ok(r) : ok);
+      if (vista === 'telegram') pintar();
+      return r;
+    } catch (e) {
+      aviso(e.message, 'mal');
+      if (btn) { btn.disabled = false; btn.classList.remove('cargando'); }
+      if (vista === 'telegram') api('/api/panel/telegram').then((r) => { tg = r; pintar(); }).catch(() => {});
+      return null;
+    }
+  }
+  const pedirToken = (titulo, textoSi) => ventana((v, cerrar) => {
+    v.append(el('h2', null, titulo));
+    v.append(el('p', null, 'Pega el token que te dio @BotFather. Se guarda solo en el servidor: aquí no se vuelve a ver.'));
+    const i = el('input', 'mono'); i.type = 'password'; i.autocomplete = 'off'; i.spellcheck = false; i.placeholder = '123456789:AAH…';
+    v.append(i);
+    const si = pieBotones(v, cerrar, textoSi, 'primario', () => { if (i.value.trim()) cerrar(i.value.trim()); });
+    i.onkeydown = (e) => { if (e.key === 'Enter') si.click(); };
+    i.focus();
+  });
+  const listaPasos = (lista) => { const o = el('ol', 'tg-pasos'); for (const p of lista) { const li = el('li'); li.innerHTML = p; o.append(li); } return o; };
+  const mini = (marcado, alCambiar, titulo) => {
+    const l = el('label', 'interruptor mini'); l.title = titulo;
+    const i = el('input'); i.type = 'checkbox'; i.checked = marcado; i.setAttribute('aria-label', titulo);
+    i.onchange = () => alCambiar(i.checked, i);
+    l.append(i, el('i', 'interruptor-pista'));
+    return l;
+  };
+  function estadoBot() {
+    if (!tg.conectado) return { texto: 'Sin conectar', tono: 'gris' };
+    if (tg.estado === 'ok') return { texto: 'Funcionando', tono: 'bien' };
+    if (tg.estado === 'falta el grupo') return { texto: 'Falta el grupo', tono: 'aviso' };
+    if (/^error/.test(tg.estado)) return { texto: 'Con error', tono: 'mal' };
+    return { texto: tg.estado, tono: 'gris' };
+  }
+
+  function vistaTelegram(v) {
+    const caja = el('div', 'tg');
+    v.append(caja);
+    const pintado = Boolean(tg);
+    if (pintado) pintarTelegram(caja); else caja.append(el('div', 'tarjeta hueso alto'));
+    api('/api/panel/telegram').then((r) => {
+      const cambio = JSON.stringify(r) !== JSON.stringify(tg);
+      tg = r;
+      // Solo se repinta si hay algo nuevo (o si aún se veía el hueso de carga)
+      if (caja.isConnected && (cambio || !pintado) && !pila.length && !document.activeElement?.matches('input')) { caja.innerHTML = ''; pintarTelegram(caja); }
+    }).catch((e) => {
+      if (!caja.isConnected) return;
+      caja.innerHTML = '';
+      const f = el('div', 'tarjeta fallo'); f.append(ico('alerta', 'tono-mal'));
+      const t = el('div'); t.append(el('b', null, 'No se pudo cargar Telegram'), el('span', null, e.message)); f.append(t);
+      caja.append(f);
+    });
+  }
+
+  function pintarTelegram(c) {
+    const rej = el('div', 'rejilla-resumen');
+    c.append(rej);
+
+    // 1) El bot
+    const t1 = tarjeta('Bot', 'telegram');
+    const fila = el('div', 'linea');
+    const q = el('div', 'linea-quien');
+    q.append(el('b', null, tg.bot || 'Ningún bot conectado'), el('small', null, tg.conectado ? (tg.estado.startsWith('error') ? tg.estado : 'Conectado a este panel') : 'Conéctalo para avisar en tu grupo'));
+    fila.append(ico('telegram', 'tg-logo'), q, insignia(estadoBot()));
+    t1.cuerpo.append(fila);
+    if (!tg.conectado) {
+      t1.cuerpo.append(listaPasos([
+        'En Telegram, abre <b>@BotFather</b>, escribe <code>/newbot</code> y sigue los pasos.',
+        'Copia el <b>token</b> que te da (es como <code>123456789:AAH…</code>).',
+        'Pulsa <b>Conectar bot</b> y pégalo.',
+      ]));
+      const b = boton('Conectar bot', 'primario', 'telegram');
+      b.onclick = async () => { const t = await pedirToken('Conectar bot de Telegram', 'Conectar'); if (t) tgAccion('/conectar', { token: t }, (r) => `Bot ${r.bot} conectado`, b); };
+      { const a = el('div', 'tg-acciones'); a.append(b); t1.cuerpo.append(a); }
+    } else {
+      const acc = el('div', 'tg-acciones');
+      const cambiar = boton('Cambiar de bot', 'fino', 'llave');
+      cambiar.onclick = async () => { const t = await pedirToken('Cambiar de bot', 'Cambiar'); if (t) tgAccion('/conectar', { token: t }, (r) => `Bot ${r.bot} conectado`, cambiar); };
+      const off = boton('Desconectar', 'fino peligro', 'apagada');
+      off.onclick = async () => { if (await confirmar('¿Desconectar el bot?', 'Dejará de avisar en el grupo. Los temas y los mensajes que ya hay se quedan. Puedes volver a conectarlo cuando quieras.', 'Desconectar', true)) tgAccion('/desconectar', {}, 'Bot desconectado', off); };
+      acc.append(cambiar, off);
+      t1.cuerpo.append(acc);
+    }
+
+    // 2) El grupo
+    const t2 = tarjeta('Grupo', 'cuentas');
+    if (!tg.conectado) t2.cuerpo.append(el('p', 'tarjeta-vacia', 'Primero conecta el bot.'));
+    else if (!tg.grupo) {
+      t2.cuerpo.append(el('p', 'tg-nota', 'El bot está esperando a que lo añadas a un grupo:'));
+      t2.cuerpo.append(listaPasos([
+        'Crea un grupo (o usa el tuyo) y en sus ajustes activa <b>Temas</b>.',
+        `Añade al bot <b>${tg.bot ?? ''}</b> como <b>administrador</b> con permiso para <b>gestionar temas</b> y <b>borrar mensajes</b>.`,
+        'Escribe cualquier cosa en el grupo y pulsa <b>Buscar grupo</b>.',
+      ]));
+      const b = boton('Buscar grupo', 'primario', 'buscar');
+      b.onclick = () => tgAccion('/grupo/buscar', {}, (r) => (r.grupo ? `Grupo «${r.grupo.nombre ?? r.grupo.id}» conectado` : 'Aún no lo encuentra: escribe algo en el grupo y vuelve a probar'), b);
+      { const a = el('div', 'tg-acciones'); a.append(b); t2.cuerpo.append(a); }
+    } else {
+      const f = el('div', 'linea');
+      const g = el('div', 'linea-quien'); g.append(el('b', null, tg.grupo.nombre || 'Grupo'), el('small', 'mono', tg.grupo.id));
+      f.append(ico('cuentas', 'tg-logo'), g);
+      t2.cuerpo.append(f);
+      const fijos = [tg.temasFijos.chat, tg.temasFijos.avisos].filter(Boolean);
+      t2.cuerpo.append(el('p', 'tg-nota', `${tg.bibliotecas.filter((b) => b.tema).length} temas de bibliotecas${fijos.length ? ` · también ${fijos.join(' y ')}` : ''}. Los avisos de mantenimiento se publican mandando /anuncio al bot por privado.`));
+      const b = boton('Cambiar de grupo', 'fino', 'renovar');
+      b.onclick = async () => { if (await confirmar('¿Cambiar de grupo?', 'El bot dejará este grupo de lado (no borra nada en él) y buscará otro: añádelo al nuevo y escribe algo. Allí creará los temas desde cero.', 'Cambiar de grupo')) tgAccion('/grupo/cambiar', {}, 'Esperando el grupo nuevo', b); };
+      { const a = el('div', 'tg-acciones'); a.append(b); t2.cuerpo.append(a); }
+    }
+    rej.append(t1.caja, t2.caja);
+    if (!tg.conectado || !tg.grupo) return;
+
+    // 3) Un tema por biblioteca
+    const t3 = tarjeta('Temas por biblioteca', 'carpeta', tg.bibliotecas.length ? null : (tg.errorEmby ? `No se pudo leer Emby: ${tg.errorEmby}` : 'Emby no tiene bibliotecas.'));
+    t3.caja.classList.add('tg-ancha');
+    t3.cuerpo.append(el('p', 'tg-nota', 'Cada biblioteca avisa de lo nuevo en su tema. Apaga las que no quieras anunciar: lo que tengan se da por visto y, al encenderlas, solo avisan de lo que llegue después.'));
+    for (const b of tg.bibliotecas) {
+      const f = el('div', `linea tg-lib${b.avisar ? '' : ' apagada'}`);
+      const info = el('div', 'linea-quien');
+      info.append(el('b', null, b.nombre));
+      const sub = el('small', null, !b.avisar ? 'Avisos apagados' : b.tema ? `Tema: ${b.tema.nombre}${b.tema.propio ? ' (nombre propio)' : ''}` : 'El tema se crea en un momento');
+      info.append(sub);
+      if (b.todo) info.append(el('span', 'chip vivo', `Publicando todo · quedan ${b.enCola}`));
+      else if (b.enCola) info.append(el('span', 'chip', `${b.enCola} en cola`));
+      const acc = el('div', 'tg-lib-acc');
+      if (b.avisar) {
+        const ren = boton(null, 'icono fino', 'editar', 'Cambiar el nombre del tema');
+        ren.onclick = async () => {
+          const n = await pedirTexto('Nombre del tema', 'Como saldrá en el grupo (puedes poner un emoji delante). Escribe «auto» para volver al nombre de la biblioteca.', b.tema?.nombre ?? b.nombre, 'Guardar');
+          if (n != null) tgAccion('/biblioteca', { id: b.id, tema: n.trim().toLowerCase() === 'auto' ? '' : n }, 'Tema renombrado', ren);
+        };
+        const pr = boton(null, 'icono fino', 'play', 'Mandar un mensaje de prueba a este tema');
+        pr.onclick = () => tgAccion('/probar', { id: b.id }, (r) => `Prueba enviada a «${r.tema}»`, pr);
+        const todo = boton(null, 'icono fino', 'subir', 'Publicar todo lo que ya hay en esta biblioteca');
+        todo.onclick = async () => { if (await confirmar(`¿Publicar todo «${b.nombre}»?`, 'El bot mandará una ficha por cada película o serie que ya hay en esta biblioteca, una cada pocos segundos. Si hay muchas, tardará un buen rato. Puedes pararlo con «Vaciar la cola».', 'Publicar todo')) tgAccion('/avisar-todo', { id: b.id }, 'Publicando: irá saliendo poco a poco', todo); };
+        acc.append(ren, pr, todo);
+      }
+      acc.append(mini(b.avisar, (si, i) => { i.disabled = true; tgAccion('/biblioteca', { id: b.id, avisar: si }, si ? `Avisos de «${b.nombre}» encendidos` : `Avisos de «${b.nombre}» apagados`); }, b.avisar ? 'Avisos encendidos' : 'Avisos apagados'));
+      f.append(info, acc);
+      t3.cuerpo.append(f);
+    }
+    c.append(t3.caja);
+
+    // 4) Opciones y mantenimiento
+    const rej2 = el('div', 'rejilla-resumen');
+    const t4 = tarjeta('Opciones del grupo', 'editar');
+    const bien = interruptor('Dar la bienvenida', 'Un mensaje con las normas y los temas cuando alguien entra', tg.opciones.bienvenida);
+    bien.input.onchange = () => tgAccion('/opciones', { bienvenida: bien.input.checked }, 'Guardado');
+    const chat = interruptor('Tema «💬 Chat»', 'Un tema abierto para hablar y pedir cosas (apagarlo lo borra)', tg.opciones.chat);
+    chat.input.onchange = async () => {
+      if (!chat.input.checked && !(await confirmar('¿Quitar el tema Chat?', 'Se borrará el tema «💬 Chat» con todos sus mensajes.', 'Quitar', true))) { chat.input.checked = true; return; }
+      tgAccion('/opciones', { chat: chat.input.checked }, 'Guardado');
+    };
+    const ops = el('div', 'tg-opciones'); ops.append(bien.caja, chat.caja);
+    t4.cuerpo.append(ops);
+
+    const t5 = tarjeta('Avisos', 'alerta');
+    t5.cuerpo.append(el('p', 'tg-nota', tg.enCola ? `Hay ${tg.enCola} ${tg.enCola === 1 ? 'aviso' : 'avisos'} esperando a salir.` : 'No hay avisos esperando.'));
+    const acc5 = el('div', 'tg-acciones');
+    const vaciar = boton('Vaciar la cola', 'fino', 'parar');
+    vaciar.disabled = !tg.enCola;
+    vaciar.onclick = async () => { if (await confirmar('¿Vaciar la cola?', 'Lo que está esperando no se publicará (se da por avisado). Sirve para parar un «Publicar todo».', 'Vaciar')) tgAccion('/vaciar-cola', {}, 'Cola vacía', vaciar); };
+    const borrar = boton('Borrar todos los avisos', 'fino peligro', 'papelera');
+    borrar.onclick = async () => { if (await confirmar('¿Borrar todos los avisos?', 'Se borran los temas de las bibliotecas con todos sus mensajes y se crean de nuevo, vacíos. «Chat», «Avisos» y «General» no se tocan. No se puede deshacer.', 'Borrar avisos', true)) tgAccion('/borrar-avisos', {}, 'Avisos borrados: los temas se vuelven a crear vacíos', borrar); };
+    acc5.append(vaciar, borrar);
+    t5.cuerpo.append(acc5);
+    rej2.append(t4.caja, t5.caja);
+    c.append(rej2);
   }
 
   // ---------- Actividad ----------

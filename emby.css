@@ -322,3 +322,25 @@ select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px
   .credencial-linea { gap: 8px; }
   .credencial-linea .boton.icono { width: 40px; height: 40px; flex: none; }
 }
+
+/* ---------- Telegram ---------- */
+.tg > .rejilla-resumen:first-child { margin-top: 0; }
+.tg-ancha { margin-top: 16px; }
+.tg-nota { margin: 4px 0 8px; color: var(--suave); font-size: 13px; line-height: 1.5; }
+.tg-pasos { margin: 4px 0 10px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--suave); font-size: 13px; line-height: 1.5; }
+.tg-pasos b { color: var(--texto); }
+.tg-pasos code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; padding: 1px 5px; border-radius: 5px; background: var(--panel3); color: var(--texto); }
+.tg-acciones { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 10px; }
+.tg-logo { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--acento-f); color: var(--acento); }
+.tg-logo svg { width: 18px; height: 18px; }
+.tg-lib .linea-quien { gap: 3px; }
+.tg-lib .chip { align-self: flex-start; margin-top: 3px; }
+.tg-lib.apagada .linea-quien b { color: var(--tenue); }
+.tg-lib-acc { display: flex; align-items: center; gap: 6px; flex: none; }
+.tg-opciones { display: flex; flex-direction: column; gap: 10px; padding-top: 6px; }
+.interruptor.mini { padding: 0; border: 0; background: none; gap: 0; margin-left: 4px; }
+.boton.cargando { opacity: .6; pointer-events: none; }
+@media (max-width: 640px) {
+  .tg-lib { flex-wrap: wrap; }
+  .tg-lib-acc { width: 100%; justify-content: flex-end; }
+}
