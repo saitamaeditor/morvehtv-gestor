@@ -909,7 +909,7 @@
             const r = await api('/api/panel/emby/crear', { usuario: usuario.value, clave: clave.value, caduca, meses, pantallas, bibliotecas, descargas: desc.input.checked, nota: nota.value, ...(dueno && { dueno }) });
             fin(true);
             if (r.coste) aviso(`−${textoCreditos(r.coste)}`, 'bien');
-            datosDeAcceso(r.usuario, clave.value, caduca);
+            datosDeAcceso(r.usuario, clave.value, caduca, false, 0, pantallas);
           } else {
             const cambios = { nombre: usuario.value, pantallas, bibliotecas, descargas: desc.input.checked, nota: nota.value, ...(caduca !== undefined && { caduca }) };
             await api('/api/panel/emby/editar', { id: u.id, nombre: u.nombre, cambios });
@@ -1180,44 +1180,61 @@
   }
 
   // Los datos para entrar, listos para copiar y mandar (la contraseña no se vuelve a ver)
-  function datosDeAcceso(usuario, clave, caduca, soloClave, demoHoras = 0) {
+  // El mensaje usa `…` en usuario, contraseña y servidor: en Telegram y WhatsApp salen en monoespaciado
+  // y en Telegram se copian con un toque.
+  function datosDeAcceso(usuario, clave, caduca, soloClave, demoHoras = 0, pantallas = 0) {
     ventana((w, fin) => {
       const cab = el('div', 'cab-confirmar'); cab.append(ico('ok', 'tono-bien'), el('h2', null, soloClave ? 'Contraseña cambiada' : demoHoras ? 'Demo creada' : 'Cuenta creada'));
       w.append(cab, el('p', null, 'Pásale estos datos por mensaje privado. La contraseña no se vuelve a mostrar.'));
-      const servidor = d.servidor.replace(/^https?:\/\//, '');
-      const raya = '━━━━━━━━━━━━━━━━━━';
-      const texto = [
-        demoHoras ? `🎁  TU DEMO DE ${(d.nombreServidor || 'Emby').toUpperCase()} · ${textoHoras(demoHoras).toUpperCase()}` : `📺  TU CUENTA DE ${(d.nombreServidor || 'Emby').toUpperCase()}`,
-        raya,
-        '',
-        '🌐  Servidor',
-        `      ${d.servidor}`,
-        '',
-        '👤  Usuario',
-        `      ${usuario}`,
-        '',
-        '🔑  Contraseña',
-        `      ${clave}`,
-        '',
-        caduca ? '📅  Válida hasta' : '📅  Caducidad',
-        `      ${caduca ? (demoHoras ? fechaHora(caduca) : fechaCorta(caduca)) : 'Sin caducidad'}`,
-        ...(demoHoras ? ['', '      1 pantalla. Si te gusta, pídenos tu cuenta completa.'] : []),
-        '',
-        raya,
-        '',
+      const servidor = d.servidor.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+      const marca = (d.nombreServidor || 'Emby').toUpperCase();
+      const raya = '━━━━━━━━━━━━━━━━';
+      const validez = caduca ? (demoHoras ? fechaHora(caduca) : fechaCorta(caduca)) : 'sin caducidad';
+      const nPantallas = demoHoras ? 1 : pantallas;
+      const comoEntrar = [
         '📲  CÓMO ENTRAR',
         '',
-        '▸ Desde el navegador:',
-        `      ${d.servidor}`,
+        '1️⃣  Instala la app «Emby» (Play Store, App Store, Smart TV, Fire TV, Android TV…).',
+        '2️⃣  Pulsa «Añadir servidor» y escribe:',
+        `      Servidor:  \`https://${servidor}\``,
+        '      Puerto:  `443`',
+        '3️⃣  Entra con tu usuario y contraseña.',
         '',
-        '▸ Con la app de Emby',
-        '   (móvil, Smart TV, Fire TV…):',
-        `      Servidor:  ${servidor}`,
-        '      Puerto:  443',
+        `💻  O desde el navegador: https://${servidor}`,
+      ];
+      const texto = (soloClave ? [
+        `🔑  NUEVA CONTRASEÑA · ${marca}`,
+        raya,
+        '',
+        `👤  Usuario:  \`${usuario}\``,
+        `🔑  Contraseña:  \`${clave}\``,
+        '',
+        'Cierra sesión en tus dispositivos y vuelve a entrar con la contraseña nueva.',
         '',
         raya,
+        '💬  ¿Algún problema? Escríbenos.',
+      ] : [
+        demoHoras ? `🎁  TU PRUEBA GRATIS DE ${marca}` : `📺  BIENVENIDO/A A ${marca}`,
+        raya,
+        '',
+        demoHoras ? `Tienes ${textoHoras(demoHoras)} para probarlo todo. Estos son tus datos:` : 'Ya tienes tu cuenta lista. Estos son tus datos:',
+        '',
+        `👤  Usuario:  \`${usuario}\``,
+        `🔑  Contraseña:  \`${clave}\``,
+        `📅  ${caduca ? 'Válida hasta' : 'Validez'}:  ${validez}`,
+        ...(nPantallas ? [`📱  Pantallas a la vez:  ${nPantallas}`] : []),
+        '',
+        raya,
+        '',
+        ...comoEntrar,
+        '',
+        raya,
+        ...(demoHoras ? ['⭐  ¿Te gusta? Pídenos tu cuenta completa antes de que acabe la prueba.'] : []),
+        '🔒  La cuenta es personal: no la compartas.',
+        '💬  ¿Dudas o problemas? Escríbenos.',
+        '',
         '¡Disfruta! 🍿',
-      ].join('\n');
+      ]).join('\n');
       const t = el('div', 'credencial');
       const linea = (titulo, valor, mono) => {
         const x = el('div', 'credencial-linea');
